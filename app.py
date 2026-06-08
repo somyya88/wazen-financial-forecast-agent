@@ -1,20 +1,33 @@
 import io
-import json
 import math
-import re
 from datetime import datetime
 
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 from sklearn.linear_model import LinearRegression
-from openai import OpenAI
 
-# =============================
-# PAGE CONFIG
-# =============================
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
+
+# ============================================================
+# WAZEN CFO INTELLIGENCE AGENT - V3
+# ============================================================
+
+WAZEN_BLUE = "#17479E"
+WAZEN_ORANGE = "#FAA61A"
+TEXT = "#1F2937"
+MUTED = "#6B7280"
+BG = "#F7F9FC"
+CARD = "#FFFFFF"
+BORDER = "#E5E7EB"
+RISK = "#DC2626"
+WATCH = "#D97706"
+HEALTHY = "#059669"
+
 st.set_page_config(
     page_title="Wazen CFO Intelligence Agent",
     page_icon="📊",
@@ -22,717 +35,790 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-WAZEN_BLUE = "#17479E"
-WAZEN_ORANGE = "#FAA61A"
-
 st.markdown(
     f"""
-    <style>
-    .main {{background-color:#FFFFFF;}}
-    .block-container {{padding-top: 2rem; padding-bottom: 2rem;}}
-    .hero {{
-        padding: 28px 34px;
-        border-radius: 22px;
-        background: linear-gradient(135deg, rgba(23,71,158,0.10), rgba(250,166,26,0.08));
-        border: 1px solid rgba(23,71,158,0.12);
-        margin-bottom: 22px;
-    }}
-    .hero h1 {{font-size: 42px; margin-bottom: 6px; color:#1f2430;}}
-    .hero p {{color:#5f6675; font-size:16px;}}
-    .section-title {{
-        font-size: 24px; font-weight: 800; color:#1f2430;
-        margin-top: 28px; margin-bottom: 12px;
-    }}
-    .metric-card {{
-        padding: 18px 18px;
-        border-radius: 18px;
-        background: #FFFFFF;
-        border: 1px solid #EEF1F6;
-        box-shadow: 0 6px 20px rgba(31,36,48,0.05);
-        min-height: 105px;
-    }}
-    .metric-label {{font-size: 13px; color:#6d7482; margin-bottom: 8px;}}
-    .metric-value {{font-size: 28px; font-weight: 800; color:#1f2430;}}
-    .metric-note {{font-size: 12px; color:#7d8491; margin-top: 5px;}}
-    .good {{color:#0A8F4D; font-weight:700;}}
-    .warn {{color:#B7791F; font-weight:700;}}
-    .risk {{color:#C53030; font-weight:700;}}
-    .small-note {{font-size: 13px; color:#6d7482;}}
-    </style>
-    """,
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+html, body, [class*="css"] {{
+    font-family: 'Inter', sans-serif;
+}}
+
+.main {{
+    background: {BG};
+}}
+
+.block-container {{
+    padding-top: 2.1rem;
+    padding-bottom: 3rem;
+    max-width: 1280px;
+}}
+
+.hero {{
+    background: linear-gradient(135deg, rgba(23,71,158,0.10), rgba(250,166,26,0.10));
+    border: 1px solid {BORDER};
+    border-radius: 28px;
+    padding: 30px 34px;
+    margin-bottom: 24px;
+    box-shadow: 0 10px 35px rgba(15, 23, 42, 0.06);
+}}
+
+.hero-title {{
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    color: {TEXT};
+    margin: 0;
+}}
+
+.hero-subtitle {{
+    color: {MUTED};
+    margin-top: 8px;
+    font-size: 15px;
+}}
+
+.section-title {{
+    font-size: 24px;
+    font-weight: 800;
+    color: {TEXT};
+    margin: 28px 0 12px 0;
+}}
+
+.card {{
+    background: {CARD};
+    border: 1px solid {BORDER};
+    border-radius: 22px;
+    padding: 20px 22px;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.045);
+    min-height: 116px;
+}}
+
+.kpi-label {{
+    color: {MUTED};
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}}
+
+.kpi-value {{
+    color: {TEXT};
+    font-size: 28px;
+    font-weight: 800;
+    margin-top: 6px;
+}}
+
+.kpi-note {{
+    color: {MUTED};
+    font-size: 12px;
+    margin-top: 4px;
+}}
+
+.badge-healthy {{
+    background: rgba(5,150,105,.11);
+    color: {HEALTHY};
+    border: 1px solid rgba(5,150,105,.22);
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 12px;
+}}
+.badge-watch {{
+    background: rgba(217,119,6,.12);
+    color: {WATCH};
+    border: 1px solid rgba(217,119,6,.22);
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 12px;
+}}
+.badge-risk {{
+    background: rgba(220,38,38,.10);
+    color: {RISK};
+    border: 1px solid rgba(220,38,38,.22);
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 12px;
+}}
+
+.sidebar-logo {{
+    background: {WAZEN_BLUE};
+    color: white;
+    font-weight: 800;
+    font-size: 30px;
+    text-align: center;
+    border-radius: 16px;
+    padding: 18px;
+    letter-spacing: .10em;
+    margin-bottom: 20px;
+}}
+
+.small-muted {{ color: {MUTED}; font-size: 13px; }}
+
+[data-testid="stMetricValue"] {{
+    font-size: 26px;
+}}
+
+.stTabs [data-baseweb="tab-list"] {{ gap: 10px; }}
+.stTabs [data-baseweb="tab"] {{
+    border-radius: 999px;
+    background: white;
+    border: 1px solid {BORDER};
+    padding: 10px 16px;
+}}
+</style>
+""",
     unsafe_allow_html=True,
 )
 
-# =============================
-# HELPERS
-# =============================
-def money(x):
+# ============================================================
+# Helper formatting
+# ============================================================
+
+def fmt_money(x):
     try:
-        return f"{float(x):,.0f}"
+        x = float(x)
     except Exception:
-        return "0"
+        return "-"
+    if abs(x) >= 1_000_000:
+        return f"{x/1_000_000:,.2f}M"
+    return f"{x:,.0f}"
 
 
-def pct(x):
+def fmt_pct(x):
     try:
-        return f"{float(x)*100:.1f}%"
+        return f"{float(x):.1%}"
     except Exception:
-        return "0.0%"
+        return "-"
 
 
-def clean_number_series(s):
-    return pd.to_numeric(s.astype(str).str.replace(",", "", regex=False).str.replace("%", "", regex=False), errors="coerce").fillna(0)
+def safe_div(a, b):
+    try:
+        if b == 0 or pd.isna(b):
+            return 0
+        return a / b
+    except Exception:
+        return 0
 
 
 def normalize_columns(df):
     df = df.copy()
-    df.columns = [str(c).strip() for c in df.columns]
+    df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
     return df
 
 
-def find_col(df, names):
-    for c in df.columns:
-        cl = str(c).strip().lower()
-        for n in names:
-            if n.lower() in cl:
-                return c
+def find_column(df, possible_names):
+    for col in df.columns:
+        clean_col = str(col).strip().lower()
+        for name in possible_names:
+            if name.lower() in clean_col:
+                return col
     return None
 
 
-def detect_input_type(df):
-    cols_l = " | ".join([str(c).lower() for c in df.columns])
-    if any(x in cols_l for x in ["revenue", "sales", "الإيراد", "الايراد", "المبيعات"]):
-        return "monthly"
-    if any(x in cols_l for x in ["account", "الحساب", "مدين", "دائن", "debit", "credit", "balance", "الرصيد"]):
-        return "trial_balance"
-    return "unknown"
-
-
-def read_uploaded_file(uploaded_file):
-    if uploaded_file.name.lower().endswith(".csv"):
-        return {"CSV": pd.read_csv(uploaded_file)}
-    xls = pd.ExcelFile(uploaded_file)
-    return {sheet: pd.read_excel(uploaded_file, sheet_name=sheet) for sheet in xls.sheet_names}
-
-
-def standardize_monthly(df):
+def detect_columns(df):
     df = normalize_columns(df)
-    month_col = find_col(df, ["month", "date", "period", "الشهر", "التاريخ", "الفترة"])
-    revenue_col = find_col(df, ["revenue", "sales", "income", "الإيرادات", "الايرادات", "المبيعات", "الدخل"])
-    cogs_col = find_col(df, ["cogs", "cost of sales", "direct cost", "تكلفة مباشرة", "تكلفة", "تكاليف"])
-    payroll_col = find_col(df, ["payroll", "salary", "salaries", "رواتب", "الأجور", "اجور"])
-    marketing_col = find_col(df, ["marketing", "ads", "advertising", "تسويق", "إعلانات", "اعلانات"])
-    opex_col = find_col(df, ["opex", "operating expenses", "admin", "general", "مصاريف", "إدارية", "ادارية", "تشغيلية"])
-    cash_col = find_col(df, ["cash", "bank", "النقد", "البنك", "رصيد"])
-    clients_col = find_col(df, ["clients", "customers", "العملاء", "عدد العملاء"])
-    other_income_col = find_col(df, ["other income", "income other", "ايرادات اخرى", "إيرادات أخرى"])
-    depreciation_col = find_col(df, ["depreciation", "استهلاك", "اهلاك", "إهلاك"])
-    ar_col = find_col(df, ["accounts receivable", "receivable", "ar", "ذمم مدينة", "عملاء"])
-    ap_col = find_col(df, ["accounts payable", "payable", "ap", "ذمم دائنة", "موردين"])
-
-    if revenue_col is None:
-        raise ValueError("لم أستطع تحديد عمود الإيرادات. استخدمي Revenue أو Sales أو الإيرادات.")
-
-    out = pd.DataFrame()
-    out["Month"] = df[month_col].astype(str) if month_col else [f"Period {i+1}" for i in range(len(df))]
-    out["Revenue"] = clean_number_series(df[revenue_col])
-    out["COGS"] = clean_number_series(df[cogs_col]) if cogs_col else 0
-    out["Payroll"] = clean_number_series(df[payroll_col]) if payroll_col else 0
-    out["Marketing"] = clean_number_series(df[marketing_col]) if marketing_col else 0
-    out["Opex"] = clean_number_series(df[opex_col]) if opex_col else 0
-    out["Cash"] = clean_number_series(df[cash_col]) if cash_col else 0
-    out["Clients"] = clean_number_series(df[clients_col]) if clients_col else 0
-    out["Other Income"] = clean_number_series(df[other_income_col]) if other_income_col else 0
-    out["Depreciation"] = clean_number_series(df[depreciation_col]) if depreciation_col else 0
-    out["AR"] = clean_number_series(df[ar_col]) if ar_col else 0
-    out["AP"] = clean_number_series(df[ap_col]) if ap_col else 0
-    return out
-
-
-def classify_account(account_name):
-    name = str(account_name).lower()
-    if any(k in name for k in ["ايراد", "إيراد", "مبيعات", "sales", "revenue"]):
-        if any(k in name for k in ["اخرى", "أخرى", "other"]):
-            return "Other Income"
-        return "Revenue"
-    if any(k in name for k in ["تكلفة", "تكاليف", "cost of sales", "cogs", "مشتريات"]):
-        return "COGS"
-    if any(k in name for k in ["راتب", "رواتب", "أجور", "اجور", "salary", "payroll", "wages"]):
-        return "Payroll"
-    if any(k in name for k in ["تسويق", "اعلان", "إعلان", "marketing", "ads"]):
-        return "Marketing"
-    if any(k in name for k in ["اهلاك", "إهلاك", "استهلاك", "depreciation"]):
-        return "Depreciation"
-    if any(k in name for k in ["نقد", "صندوق", "بنك", "bank", "cash"]):
-        return "Cash"
-    if any(k in name for k in ["عميل", "عملاء", "ذمم مدينة", "receivable"]):
-        return "AR"
-    if any(k in name for k in ["مورد", "موردين", "ذمم دائنة", "payable"]):
-        return "AP"
-    if any(k in name for k in ["مصروف", "مصاريف", "expense", "rent", "ايجار", "إيجار", "اتصالات", "رسوم"]):
-        return "Opex"
-    return "Unmapped"
-
-
-def standardize_trial_balance(df):
-    df = normalize_columns(df)
-    account_col = find_col(df, ["account name", "account", "اسم الحساب", "الحساب", "بيان"])
-    debit_col = find_col(df, ["debit", "مدين"])
-    credit_col = find_col(df, ["credit", "دائن"])
-    balance_col = find_col(df, ["balance", "الرصيد", "balance amount"])
-
-    if account_col is None:
-        raise ValueError("لم أستطع تحديد عمود اسم الحساب في ميزان المراجعة.")
-
-    tb = pd.DataFrame()
-    tb["Account Name"] = df[account_col].astype(str)
-    tb["Debit"] = clean_number_series(df[debit_col]) if debit_col else 0
-    tb["Credit"] = clean_number_series(df[credit_col]) if credit_col else 0
-    if balance_col:
-        tb["Balance"] = clean_number_series(df[balance_col])
-    else:
-        tb["Balance"] = tb["Debit"] - tb["Credit"]
-    tb["Category"] = tb["Account Name"].apply(classify_account)
-    return tb
-
-
-def tb_to_single_period(tb):
-    # For TB signs vary by system. This approach uses category-side totals conservatively.
-    def total(cat):
-        part = tb[tb["Category"] == cat]
-        if cat in ["Revenue", "Other Income"]:
-            return max(part["Credit"].sum(), abs(part["Balance"].sum()))
-        return max(part["Debit"].sum(), abs(part["Balance"].sum()))
-
-    out = pd.DataFrame([{
-        "Month": "Trial Balance Period",
-        "Revenue": total("Revenue"),
-        "COGS": total("COGS"),
-        "Payroll": total("Payroll"),
-        "Marketing": total("Marketing"),
-        "Opex": total("Opex"),
-        "Cash": total("Cash"),
-        "Clients": 0,
-        "Other Income": total("Other Income"),
-        "Depreciation": total("Depreciation"),
-        "AR": total("AR"),
-        "AP": total("AP"),
-    }])
-    return out
-
-
-def compute_kpis(data):
-    data = data.copy()
-    for col in ["Revenue", "COGS", "Payroll", "Marketing", "Opex", "Cash", "Clients", "Other Income", "Depreciation", "AR", "AP"]:
-        if col not in data.columns:
-            data[col] = 0
-        data[col] = pd.to_numeric(data[col], errors="coerce").fillna(0)
-
-    data["Gross Profit"] = data["Revenue"] - data["COGS"]
-    data["Operating Expenses"] = data["Payroll"] + data["Marketing"] + data["Opex"]
-    data["EBITDA"] = data["Gross Profit"] - data["Operating Expenses"] + data["Other Income"]
-    data["EBIT"] = data["EBITDA"] - data["Depreciation"]
-    data["Net Profit"] = data["EBIT"]
-
-    data["Gross Margin %"] = np.where(data["Revenue"] != 0, data["Gross Profit"] / data["Revenue"], 0)
-    data["EBITDA Margin %"] = np.where(data["Revenue"] != 0, data["EBITDA"] / data["Revenue"], 0)
-    data["Net Margin %"] = np.where(data["Revenue"] != 0, data["Net Profit"] / data["Revenue"], 0)
-    data["Payroll Ratio %"] = np.where(data["Revenue"] != 0, data["Payroll"] / data["Revenue"], 0)
-    data["Marketing Ratio %"] = np.where(data["Revenue"] != 0, data["Marketing"] / data["Revenue"], 0)
-    data["Opex Ratio %"] = np.where(data["Revenue"] != 0, data["Opex"] / data["Revenue"], 0)
-    data["COGS Ratio %"] = np.where(data["Revenue"] != 0, data["COGS"] / data["Revenue"], 0)
-    data["ARPU"] = np.where(data["Clients"] != 0, data["Revenue"] / data["Clients"], 0)
-    data["DSO"] = np.where(data["Revenue"] != 0, data["AR"] / data["Revenue"] * 30, 0)
-    data["DPO"] = np.where(data["COGS"] != 0, data["AP"] / data["COGS"] * 30, 0)
-    data["Monthly Burn"] = np.where(data["Net Profit"] < 0, abs(data["Net Profit"]), 0)
-    data["Cash Runway Months"] = np.where(data["Monthly Burn"] > 0, data["Cash"] / data["Monthly Burn"], np.nan)
-    return data
-
-
-def aggregate_totals(data):
-    totals = {}
-    sum_cols = ["Revenue", "COGS", "Payroll", "Marketing", "Opex", "Other Income", "Depreciation", "Gross Profit", "Operating Expenses", "EBITDA", "EBIT", "Net Profit"]
-    for c in sum_cols:
-        totals[c] = float(data[c].sum())
-    latest = data.iloc[-1]
-    totals["Cash"] = float(latest.get("Cash", 0))
-    totals["Clients"] = float(latest.get("Clients", 0))
-    totals["AR"] = float(latest.get("AR", 0))
-    totals["AP"] = float(latest.get("AP", 0))
-    totals["Gross Margin %"] = totals["Gross Profit"] / totals["Revenue"] if totals["Revenue"] else 0
-    totals["EBITDA Margin %"] = totals["EBITDA"] / totals["Revenue"] if totals["Revenue"] else 0
-    totals["Net Margin %"] = totals["Net Profit"] / totals["Revenue"] if totals["Revenue"] else 0
-    totals["Payroll Ratio %"] = totals["Payroll"] / totals["Revenue"] if totals["Revenue"] else 0
-    totals["Marketing Ratio %"] = totals["Marketing"] / totals["Revenue"] if totals["Revenue"] else 0
-    totals["Opex Ratio %"] = totals["Opex"] / totals["Revenue"] if totals["Revenue"] else 0
-    totals["COGS Ratio %"] = totals["COGS"] / totals["Revenue"] if totals["Revenue"] else 0
-    totals["ARPU"] = totals["Revenue"] / totals["Clients"] if totals["Clients"] else 0
-    avg_burn = data["Monthly Burn"].replace(0, np.nan).mean()
-    totals["Cash Runway Months"] = totals["Cash"] / avg_burn if avg_burn and not np.isnan(avg_burn) else np.nan
-    totals["DSO"] = totals["AR"] / (totals["Revenue"] / max(len(data), 1)) * 30 if totals["Revenue"] else 0
-    totals["DPO"] = totals["AP"] / (totals["COGS"] / max(len(data), 1)) * 30 if totals["COGS"] else 0
-    return totals
-
-
-def break_even_analysis(totals):
-    revenue = totals["Revenue"]
-    variable_cost_ratio = totals["COGS"] / revenue if revenue else 0
-    contribution_margin_ratio = 1 - variable_cost_ratio
-    fixed_costs = totals["Payroll"] + totals["Marketing"] + totals["Opex"] + totals["Depreciation"]
-    be_revenue = fixed_costs / contribution_margin_ratio if contribution_margin_ratio > 0 else np.nan
-    gap = revenue - be_revenue if not np.isnan(be_revenue) else np.nan
     return {
-        "Revenue": revenue,
-        "Variable Cost Ratio": variable_cost_ratio,
-        "Contribution Margin Ratio": contribution_margin_ratio,
-        "Fixed Costs": fixed_costs,
-        "Break-even Revenue": be_revenue,
-        "Break-even Gap": gap,
-        "Break-even Status": "Above Break-even" if gap >= 0 else "Below Break-even",
+        "month": find_column(df, ["month", "date", "period", "الشهر", "التاريخ", "الفترة"]),
+        "revenue": find_column(df, ["revenue", "sales", "income", "الإيرادات", "ايرادات", "المبيعات", "الدخل"]),
+        "cogs": find_column(df, ["cogs", "cost of sales", "direct cost", "تكلفة المبيعات", "تكلفة", "تكلفة مباشرة"]),
+        "payroll": find_column(df, ["payroll", "salary", "salaries", "رواتب", "الأجور", "اجور"]),
+        "marketing": find_column(df, ["marketing", "ads", "advertising", "تسويق", "إعلانات", "اعلان"]),
+        "opex": find_column(df, ["opex", "operating expenses", "admin", "general", "مصاريف", "إدارية", "تشغيلية"]),
+        "cash": find_column(df, ["cash", "bank", "النقد", "البنك", "رصيد"]),
+        "clients": find_column(df, ["clients", "customers", "العملاء", "عدد العملاء"]),
+        "depreciation": find_column(df, ["depreciation", "إهلاك", "اهلاك"]),
+        "vat_input": find_column(df, ["vat input", "input vat", "ضريبة مدخلات", "مدخلات"]),
+        "vat_output": find_column(df, ["vat output", "output vat", "ضريبة مخرجات", "مخرجات"]),
     }
 
 
-def build_benchmarks(totals, sector):
-    # Practical default ranges. They should be editable by management/consultant per sector.
-    if sector == "SaaS / خدمات تقنية":
-        benchmarks = [
-            ("Gross Margin %", totals["Gross Margin %"], 0.50, ">=", "هامش إجمالي قوي في الخدمات التقنية عادة يعكس قابلية التوسع."),
-            ("EBITDA Margin %", totals["EBITDA Margin %"], 0.15, ">=", "هامش EBITDA جيد يعكس كفاءة تشغيلية بعد المصاريف."),
-            ("Net Margin %", totals["Net Margin %"], 0.10, ">=", "صافي الربح يجب أن يتحول تدريجياً إلى موجب ومستقر."),
-            ("Payroll Ratio %", totals["Payroll Ratio %"], 0.35, "<=", "ارتفاع الرواتب فوق هذا المستوى قد يضغط على الربحية."),
-            ("Marketing Ratio %", totals["Marketing Ratio %"], 0.20, "<=", "التسويق مقبول إذا كان يقود نمواً قابلاً للقياس."),
-            ("Cash Runway Months", totals["Cash Runway Months"], 6, ">=", "سيولة أقل من 6 أشهر ترفع مخاطر التمويل."),
-        ]
+def to_number_series(df, col):
+    if not col or col not in df.columns:
+        return pd.Series([0] * len(df), index=df.index, dtype="float64")
+    return pd.to_numeric(df[col], errors="coerce").fillna(0).astype(float)
+
+
+def prepare_data(df, cols):
+    data = normalize_columns(df)
+    if cols["month"]:
+        data["Month"] = data[cols["month"]].astype(str)
     else:
-        benchmarks = [
-            ("Gross Margin %", totals["Gross Margin %"], 0.30, ">=", "هامش إجمالي أقل من 30% يحتاج مراجعة التسعير والتكلفة."),
-            ("EBITDA Margin %", totals["EBITDA Margin %"], 0.12, ">=", "EBITDA موجب ومستقر مؤشر على سلامة التشغيل."),
-            ("Net Margin %", totals["Net Margin %"], 0.08, ">=", "صافي ربح أقل من 8% يتطلب ضبط مصاريف أو تسعير."),
-            ("Payroll Ratio %", totals["Payroll Ratio %"], 0.30, "<=", "نسبة رواتب مرتفعة قد تشير إلى تضخم تشغيلي."),
-            ("Marketing Ratio %", totals["Marketing Ratio %"], 0.15, "<=", "التسويق يجب ربطه بالعائد على الإنفاق."),
-            ("Cash Runway Months", totals["Cash Runway Months"], 4, ">=", "السيولة يجب أن تكفي عدة أشهر من التشغيل."),
-        ]
+        data["Month"] = [f"Month {i+1}" for i in range(len(data))]
+
+    data["Revenue"] = to_number_series(data, cols["revenue"])
+    data["COGS"] = to_number_series(data, cols["cogs"])
+    data["Payroll"] = to_number_series(data, cols["payroll"])
+    data["Marketing"] = to_number_series(data, cols["marketing"])
+    data["Opex"] = to_number_series(data, cols["opex"])
+    data["Cash"] = to_number_series(data, cols["cash"])
+    data["Clients"] = to_number_series(data, cols["clients"])
+    data["Depreciation"] = to_number_series(data, cols["depreciation"])
+    data["VAT Input"] = to_number_series(data, cols["vat_input"])
+    data["VAT Output"] = to_number_series(data, cols["vat_output"])
+
+    # Avoid treating a summary row as a monthly point when source includes Total / Latest
+    data["_is_total_row"] = data["Month"].str.lower().str.contains("total|latest|الإجمالي|اجمالي|المجموع", regex=True, na=False)
+    monthly = data[~data["_is_total_row"]].copy()
+    if monthly.empty:
+        monthly = data.copy()
+
+    monthly["Gross Profit"] = monthly["Revenue"] - monthly["COGS"]
+    monthly["Variable Cost"] = monthly["COGS"]
+    monthly["Fixed Costs"] = monthly["Payroll"] + monthly["Marketing"] + monthly["Opex"]
+    monthly["EBITDA"] = monthly["Gross Profit"] - monthly["Fixed Costs"]
+    monthly["EBIT"] = monthly["EBITDA"] - monthly["Depreciation"]
+    monthly["Net Profit"] = monthly["EBIT"]
+
+    monthly["Gross Margin %"] = monthly.apply(lambda r: safe_div(r["Gross Profit"], r["Revenue"]), axis=1)
+    monthly["EBITDA Margin %"] = monthly.apply(lambda r: safe_div(r["EBITDA"], r["Revenue"]), axis=1)
+    monthly["Net Margin %"] = monthly.apply(lambda r: safe_div(r["Net Profit"], r["Revenue"]), axis=1)
+    monthly["Payroll Ratio %"] = monthly.apply(lambda r: safe_div(r["Payroll"], r["Revenue"]), axis=1)
+    monthly["Marketing Ratio %"] = monthly.apply(lambda r: safe_div(r["Marketing"], r["Revenue"]), axis=1)
+    monthly["Opex Ratio %"] = monthly.apply(lambda r: safe_div(r["Opex"], r["Revenue"]), axis=1)
+    monthly["ARPU"] = monthly.apply(lambda r: safe_div(r["Revenue"], r["Clients"]), axis=1)
+    monthly["VAT Payable"] = monthly["VAT Output"] - monthly["VAT Input"]
+
+    return monthly.reset_index(drop=True)
+
+
+def aggregate_metrics(monthly):
+    revenue = monthly["Revenue"].sum()
+    cogs = monthly["COGS"].sum()
+    gross_profit = monthly["Gross Profit"].sum()
+    fixed = monthly["Fixed Costs"].sum()
+    ebitda = monthly["EBITDA"].sum()
+    depreciation = monthly["Depreciation"].sum()
+    ebit = monthly["EBIT"].sum()
+    net = monthly["Net Profit"].sum()
+    cash = monthly["Cash"].iloc[-1] if "Cash" in monthly.columns and len(monthly) else 0
+    clients = monthly["Clients"].iloc[-1] if "Clients" in monthly.columns and len(monthly) else 0
+    avg_monthly_burn = max(0, -monthly["Net Profit"].mean()) if len(monthly) else 0
+    runway = safe_div(cash, avg_monthly_burn) if avg_monthly_burn else np.inf
+    variable_ratio = safe_div(cogs, revenue)
+    cm_ratio = 1 - variable_ratio
+    breakeven = safe_div(fixed, cm_ratio) if cm_ratio > 0 else 0
+    gap = revenue - breakeven
+
+    return {
+        "Revenue": revenue,
+        "COGS": cogs,
+        "Gross Profit": gross_profit,
+        "Fixed Costs": fixed,
+        "EBITDA": ebitda,
+        "EBIT": ebit,
+        "Net Profit": net,
+        "Cash": cash,
+        "Clients": clients,
+        "Gross Margin %": safe_div(gross_profit, revenue),
+        "EBITDA Margin %": safe_div(ebitda, revenue),
+        "EBIT Margin %": safe_div(ebit, revenue),
+        "Net Margin %": safe_div(net, revenue),
+        "Payroll Ratio %": safe_div(monthly["Payroll"].sum(), revenue),
+        "Marketing Ratio %": safe_div(monthly["Marketing"].sum(), revenue),
+        "Opex Ratio %": safe_div(monthly["Opex"].sum(), revenue),
+        "ARPU": safe_div(revenue, monthly["Clients"].replace(0, np.nan).mean() if len(monthly) else 0),
+        "Variable Cost Ratio": variable_ratio,
+        "Contribution Margin Ratio": cm_ratio,
+        "Break-even Revenue": breakeven,
+        "Break-even Gap": gap,
+        "Cash Runway": runway,
+        "VAT Payable": monthly["VAT Payable"].sum(),
+    }
+
+
+BENCHMARKS = {
+    "خدمات عامة": {
+        "Gross Margin %": (0.30, ">="),
+        "EBITDA Margin %": (0.12, ">="),
+        "Net Margin %": (0.08, ">="),
+        "Payroll Ratio %": (0.30, "<="),
+        "Marketing Ratio %": (0.10, "<="),
+        "Opex Ratio %": (0.18, "<="),
+        "Cash Runway": (3.0, ">="),
+    },
+    "SaaS / خدمات تقنية": {
+        "Gross Margin %": (0.65, ">="),
+        "EBITDA Margin %": (0.15, ">="),
+        "Net Margin %": (0.10, ">="),
+        "Payroll Ratio %": (0.35, "<="),
+        "Marketing Ratio %": (0.25, "<="),
+        "Opex Ratio %": (0.25, "<="),
+        "Cash Runway": (6.0, ">="),
+    },
+    "تأجير ومعدات": {
+        "Gross Margin %": (0.35, ">="),
+        "EBITDA Margin %": (0.20, ">="),
+        "Net Margin %": (0.08, ">="),
+        "Payroll Ratio %": (0.20, "<="),
+        "Marketing Ratio %": (0.08, "<="),
+        "Opex Ratio %": (0.15, "<="),
+        "Cash Runway": (3.0, ">="),
+    },
+    "تجارة": {
+        "Gross Margin %": (0.25, ">="),
+        "EBITDA Margin %": (0.08, ">="),
+        "Net Margin %": (0.04, ">="),
+        "Payroll Ratio %": (0.15, "<="),
+        "Marketing Ratio %": (0.07, "<="),
+        "Opex Ratio %": (0.12, "<="),
+        "Cash Runway": (2.0, ">="),
+    },
+}
+
+
+def assess_benchmarks(metrics, industry):
     rows = []
-    for metric, actual, target, op, note in benchmarks:
-        if np.isnan(actual):
-            status = "N/A"
-        elif op == ">=":
-            status = "Healthy" if actual >= target else "Risk" if actual < target * 0.75 else "Watch"
+    for metric, (benchmark, rule) in BENCHMARKS[industry].items():
+        actual = metrics.get(metric, 0)
+        if rule == ">=":
+            status = "Healthy" if actual >= benchmark else ("Watch" if actual >= benchmark * 0.75 else "Risk")
         else:
-            status = "Healthy" if actual <= target else "Risk" if actual > target * 1.25 else "Watch"
+            status = "Healthy" if actual <= benchmark else ("Watch" if actual <= benchmark * 1.25 else "Risk")
         rows.append({
             "Metric": metric,
             "Actual": actual,
-            "Benchmark": target,
-            "Rule": op,
+            "Benchmark": benchmark,
+            "Rule": rule,
             "Status": status,
-            "Comment": note,
+            "Gap": actual - benchmark,
         })
     return pd.DataFrame(rows)
 
 
-def generate_recommendations(totals, be, bench_df):
+def score_company(benchmarks):
+    weights = {
+        "Gross Margin %": 18,
+        "EBITDA Margin %": 20,
+        "Net Margin %": 20,
+        "Payroll Ratio %": 12,
+        "Marketing Ratio %": 8,
+        "Opex Ratio %": 10,
+        "Cash Runway": 12,
+    }
+    score = 0
+    for _, r in benchmarks.iterrows():
+        w = weights.get(r["Metric"], 10)
+        if r["Status"] == "Healthy":
+            score += w
+        elif r["Status"] == "Watch":
+            score += w * 0.55
+        else:
+            score += w * 0.15
+    return min(100, round(score, 1))
+
+
+def generate_recommendations(metrics, benchmarks):
     recs = []
-    if totals["Gross Margin %"] < 0.30:
-        recs.append(("تسعير وتكلفة مباشرة", "مراجعة التسعير أو تكلفة تقديم الخدمة لأن الهامش الإجمالي منخفض."))
-    if totals["EBITDA Margin %"] < 0.10:
-        recs.append(("الكفاءة التشغيلية", "خفض المصاريف التشغيلية غير المنتجة وربط كل تكلفة بمؤشر أداء واضح."))
-    if totals["Payroll Ratio %"] > 0.35:
-        recs.append(("الرواتب والإنتاجية", "قياس إنتاجية الفريق لكل عميل/باقة قبل إضافة توظيف جديد."))
-    if totals["Marketing Ratio %"] > 0.20:
-        recs.append(("التسويق", "تحويل التسويق إلى CAC/Payback وليس مصروفاً عاماً."))
-    if not np.isnan(be["Break-even Revenue"]) and be["Break-even Gap"] < 0:
-        recs.append(("نقطة التعادل", f"الإيرادات أقل من نقطة التعادل بفجوة تقارب {money(abs(be['Break-even Gap']))}. يجب رفع الإيراد أو خفض التكلفة الثابتة."))
-    if not np.isnan(totals["Cash Runway Months"]) and totals["Cash Runway Months"] < 4:
-        recs.append(("السيولة", "رفع سرعة التحصيل وتأجيل المصروفات غير الحرجة لأن Runway منخفض."))
-    if len(recs) == 0:
-        recs.append(("الوضع العام", "المؤشرات الأساسية مقبولة، لكن يجب متابعة جودة الإيرادات والتحصيل شهرياً."))
-    return pd.DataFrame(recs, columns=["Area", "Recommendation"])
+    severity_map = {"Risk": 3, "Watch": 2, "Healthy": 1}
+    for _, r in benchmarks.iterrows():
+        status = r["Status"]
+        if status == "Healthy":
+            continue
+        metric = r["Metric"]
+        if metric == "Net Margin %":
+            recs.append((severity_map[status], "الربحية الصافية", "صافي الربح أقل من معيار السلامة. يجب فصل أثر الإهلاك/التكاليف غير النقدية عن الأداء التشغيلي ومراجعة التسعير والتكاليف الثابتة."))
+        elif metric == "EBITDA Margin %":
+            recs.append((severity_map[status], "الكفاءة التشغيلية", "هامش EBITDA دون المستوى المستهدف. راجعي تكلفة التشغيل، الطاقة غير المستغلة، وشروط العقود مع العملاء."))
+        elif metric == "Gross Margin %":
+            recs.append((severity_map[status], "هامش الربح الإجمالي", "الهامش الإجمالي منخفض. يلزم إعادة تقييم تكلفة الخدمة/المبيعات والتأكد من أن الأسعار تغطي التكلفة المباشرة."))
+        elif metric == "Payroll Ratio %":
+            recs.append((severity_map[status], "عبء الرواتب", "نسبة الرواتب إلى الإيرادات مرتفعة. راجعي الإنتاجية لكل موظف وربط التوظيف بالنمو الفعلي في الإيرادات."))
+        elif metric == "Marketing Ratio %":
+            recs.append((severity_map[status], "كفاءة التسويق", "الإنفاق التسويقي مرتفع مقارنة بالإيرادات. يلزم قياس CAC، معدل التحويل، وفترة استرداد تكلفة العميل."))
+        elif metric == "Cash Runway":
+            recs.append((severity_map[status], "السيولة", "مدى السيولة أقل من معيار السلامة. يجب وضع خطة تحصيل وتمويل قصير الأجل وخفض المصاريف غير الحرجة."))
+        else:
+            recs.append((severity_map[status], metric, f"المؤشر {metric} يحتاج متابعة لأنه في حالة {status}."))
+
+    if metrics["Break-even Gap"] < 0:
+        recs.append((3, "نقطة التعادل", f"الإيرادات أقل من نقطة التعادل بفجوة تقارب {fmt_money(abs(metrics['Break-even Gap']))}. الأولوية: رفع الإيراد أو خفض التكاليف الثابتة أو تحسين الهامش."))
+    else:
+        recs.append((1, "نقطة التعادل", "الإيرادات أعلى من نقطة التعادل، لكن يجب مراقبة الهامش لأن أي ارتفاع في التكاليف الثابتة قد يضغط الربحية."))
+
+    recs = sorted(recs, reverse=True, key=lambda x: x[0])
+    return pd.DataFrame([{"Priority": p, "Area": a, "Recommendation": t} for p, a, t in recs])
 
 
-def forecast_financials(data, months_ahead=6):
-    if len(data) < 2:
+def forecast_scenarios(monthly, months_ahead=6):
+    if len(monthly) < 2:
         return pd.DataFrame()
-    y = data["Revenue"].values.reshape(-1, 1)
-    x = np.arange(len(y)).reshape(-1, 1)
+    x = np.arange(len(monthly)).reshape(-1, 1)
+    y = monthly["Revenue"].values.reshape(-1, 1)
     model = LinearRegression().fit(x, y)
-    future_x = np.arange(len(y), len(y) + months_ahead).reshape(-1, 1)
+    future_x = np.arange(len(monthly), len(monthly) + months_ahead).reshape(-1, 1)
     base_rev = np.maximum(model.predict(future_x).flatten(), 0)
 
-    cogs_ratio = data["COGS Ratio %"].replace([np.inf, -np.inf], 0).tail(3).mean()
-    payroll_avg = data["Payroll"].tail(3).mean()
-    marketing_ratio = data["Marketing Ratio %"].replace([np.inf, -np.inf], 0).tail(3).mean()
-    opex_avg = data["Opex"].tail(3).mean()
-    dep_avg = data["Depreciation"].tail(3).mean()
+    avg_cogs_ratio = safe_div(monthly["COGS"].sum(), monthly["Revenue"].sum())
+    avg_payroll_ratio = safe_div(monthly["Payroll"].sum(), monthly["Revenue"].sum())
+    avg_marketing_ratio = safe_div(monthly["Marketing"].sum(), monthly["Revenue"].sum())
+    avg_opex_ratio = safe_div(monthly["Opex"].sum(), monthly["Revenue"].sum())
 
     rows = []
-    for i, rev in enumerate(base_rev, start=1):
-        for case, factor in [("Base", 1.0), ("Optimistic", 1.15), ("Pessimistic", 0.85)]:
-            r = rev * factor
-            cogs = r * cogs_ratio
-            marketing = r * marketing_ratio
-            gross_profit = r - cogs
-            ebitda = gross_profit - payroll_avg - marketing - opex_avg
-            net_profit = ebitda - dep_avg
+    scenarios = {
+        "Base": 1.00,
+        "Optimistic": 1.15,
+        "Pessimistic": 0.85,
+    }
+    for i in range(months_ahead):
+        for scenario, mult in scenarios.items():
+            rev = base_rev[i] * mult
+            cogs = rev * avg_cogs_ratio
+            payroll = rev * avg_payroll_ratio
+            marketing = rev * avg_marketing_ratio
+            opex = rev * avg_opex_ratio
+            gp = rev - cogs
+            ebitda = gp - payroll - marketing - opex
             rows.append({
-                "Month": f"Month +{i}",
-                "Scenario": case,
-                "Revenue": r,
+                "Month": f"Month +{i+1}",
+                "Scenario": scenario,
+                "Revenue": rev,
                 "COGS": cogs,
-                "Gross Profit": gross_profit,
-                "Payroll": payroll_avg,
+                "Gross Profit": gp,
+                "Payroll": payroll,
                 "Marketing": marketing,
-                "Opex": opex_avg,
+                "Opex": opex,
                 "EBITDA": ebitda,
-                "Net Profit": net_profit,
-                "Gross Margin %": gross_profit / r if r else 0,
-                "EBITDA Margin %": ebitda / r if r else 0,
+                "EBITDA Margin %": safe_div(ebitda, rev),
             })
     return pd.DataFrame(rows)
 
 
-def ai_cfo_report(totals, be, bench_df, rec_df, forecast_df):
+def fig_line(df, x, y, title, percent=False):
+    fig = go.Figure()
+    if isinstance(y, list):
+        for col in y:
+            fig.add_trace(go.Scatter(x=df[x], y=df[col], mode="lines+markers", name=col))
+    else:
+        fig.add_trace(go.Scatter(x=df[x], y=df[y], mode="lines+markers", name=y, line=dict(color=WAZEN_BLUE, width=3)))
+    fig.update_layout(
+        title=title,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=10, r=10, t=45, b=10),
+        height=360,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(gridcolor="#E5E7EB", tickformat=".0%" if percent else None)
+    return fig
+
+
+def fig_bar_be(metrics):
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=["Actual Revenue"], y=[metrics["Revenue"]], name="Revenue", marker_color=WAZEN_BLUE))
+    fig.add_trace(go.Bar(x=["Break-even Revenue"], y=[metrics["Break-even Revenue"]], name="Break-even", marker_color=WAZEN_ORANGE))
+    fig.update_layout(
+        title="Actual Revenue vs Break-even",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=360,
+        margin=dict(l=10, r=10, t=45, b=10),
+    )
+    fig.update_yaxes(gridcolor="#E5E7EB")
+    return fig
+
+
+def ai_cfo_report(metrics, benchmarks, recommendations, forecast):
     api_key = st.secrets.get("OPENAI_API_KEY", None)
-    if not api_key:
-        return "لم يتم تفعيل مفتاح OpenAI في Secrets. التحليل الرقمي والداشبورد يعملان، لكن تقرير CFO الذكي يحتاج المفتاح."
+    if not api_key or OpenAI is None:
+        return "لم يتم تفعيل مفتاح OpenAI. يمكن استخدام التقرير القاعدي والتوصيات الحالية، أو إضافة المفتاح لتوليد تعليق CFO أكثر عمقاً."
     client = OpenAI(api_key=api_key)
-    payload = {
-        "totals": totals,
-        "break_even": be,
-        "benchmarks": bench_df.to_dict(orient="records"),
-        "recommendations": rec_df.to_dict(orient="records"),
-        "forecast_sample": forecast_df.head(18).to_dict(orient="records") if not forecast_df.empty else [],
-    }
     prompt = f"""
-أنت CFO تنفيذي ومستشار مالي للشركات الصغيرة والمتوسطة.
-اكتب تقريراً احترافياً باللغة العربية بناءً على JSON التالي.
+أنت CFO محترف ومستشار مالي تنفيذي. اكتب تقريراً عربياً احترافياً غير عام اعتماداً على البيانات التالية.
+ركز على: جودة الربحية، نقطة التعادل، المخاطر، التوصيات، والأسئلة الإدارية.
+لا تكرر الأرقام فقط. فسّر معنى الأرقام.
 
-لا تكتب كلاماً عاماً. اربط كل توصية برقم. لا تفترض أن الشركة ناضجة إذا كانت في مرحلة تشغيل أولي.
+Metrics:
+{pd.Series(metrics).to_string()}
 
-المطلوب:
-1) Executive Summary قوي.
-2) تحليل الربحية والهامش.
-3) تحليل المصاريف وهيكل التكلفة.
-4) تحليل نقطة التعادل.
-5) قراءة التوقعات والسيناريوهات.
-6) تقييم نسب السلامة.
-7) 5 توصيات تنفيذية واضحة.
-8) 5 أسئلة يجب أن تسألها الإدارة قبل القرار.
+Benchmarks:
+{benchmarks.to_string(index=False)}
 
-البيانات:
-{json.dumps(payload, ensure_ascii=False, default=str)}
+Recommendations:
+{recommendations.to_string(index=False)}
+
+Forecast:
+{forecast.head(18).to_string(index=False) if not forecast.empty else 'No forecast'}
 """
-    response = client.chat.completions.create(
+    res = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "You are a senior CFO financial analysis agent."},
+            {"role": "system", "content": "You are a senior CFO intelligence agent. Arabic output only."},
             {"role": "user", "content": prompt},
         ],
-        temperature=0.2,
+        temperature=0.25,
     )
-    return response.choices[0].message.content
+    return res.choices[0].message.content
 
 
-def create_excel_report(data, totals, be, bench_df, rec_df, forecast_df):
+def create_excel(monthly, metrics, benchmarks, breakeven_df, forecast, recommendations, ai_report_text):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         workbook = writer.book
-        fmt_title = workbook.add_format({"bold": True, "font_size": 18, "font_color": "#17479E"})
-        fmt_header = workbook.add_format({"bold": True, "bg_color": "#17479E", "font_color": "#FFFFFF", "border": 1})
-        fmt_sub = workbook.add_format({"bold": True, "font_size": 12, "font_color": "#17479E"})
-        fmt_money = workbook.add_format({"num_format": "#,##0", "border": 1})
+        fmt_title = workbook.add_format({"bold": True, "font_size": 20, "font_color": WAZEN_BLUE})
+        fmt_header = workbook.add_format({"bold": True, "bg_color": WAZEN_BLUE, "font_color": "white", "border": 1})
+        fmt_subheader = workbook.add_format({"bold": True, "bg_color": "#EAF1FF", "font_color": TEXT, "border": 1})
+        fmt_num = workbook.add_format({"num_format": "#,##0", "border": 1})
         fmt_pct = workbook.add_format({"num_format": "0.0%", "border": 1})
-        fmt_text = workbook.add_format({"border": 1, "text_wrap": True})
-        fmt_good = workbook.add_format({"font_color": "#0A8F4D", "bold": True, "border": 1})
-        fmt_warn = workbook.add_format({"font_color": "#B7791F", "bold": True, "border": 1})
-        fmt_risk = workbook.add_format({"font_color": "#C53030", "bold": True, "border": 1})
-        fmt_orange = workbook.add_format({"bold": True, "bg_color": "#FAA61A", "font_color": "#1f2430", "border": 1})
+        fmt_text = workbook.add_format({"text_wrap": True, "valign": "top", "border": 1})
+        fmt_note = workbook.add_format({"text_wrap": True, "valign": "top", "font_color": TEXT})
+        fmt_risk = workbook.add_format({"bg_color": "#FEE2E2", "font_color": RISK, "bold": True, "border": 1})
+        fmt_watch = workbook.add_format({"bg_color": "#FEF3C7", "font_color": WATCH, "bold": True, "border": 1})
+        fmt_ok = workbook.add_format({"bg_color": "#DCFCE7", "font_color": HEALTHY, "bold": True, "border": 1})
 
         # Dashboard
-        dash = workbook.add_worksheet("Dashboard")
-        dash.right_to_left()
-        dash.hide_gridlines(2)
-        dash.set_column("A:A", 24)
-        dash.set_column("B:E", 18)
-        dash.write("A1", "Wazen CFO Intelligence Dashboard", fmt_title)
-        dash.write("A2", "Generated", fmt_sub)
-        dash.write("B2", datetime.now().strftime("%Y-%m-%d %H:%M"), fmt_text)
-
+        ws = workbook.add_worksheet("Dashboard")
+        writer.sheets["Dashboard"] = ws
+        ws.hide_gridlines(2)
+        ws.set_column("A:A", 24)
+        ws.set_column("B:D", 20)
+        ws.write("A1", "Wazen CFO Intelligence Report", fmt_title)
+        ws.write("A2", f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", fmt_note)
         kpis = [
-            ("Revenue", totals["Revenue"], fmt_money),
-            ("Gross Margin %", totals["Gross Margin %"], fmt_pct),
-            ("EBITDA Margin %", totals["EBITDA Margin %"], fmt_pct),
-            ("Net Profit", totals["Net Profit"], fmt_money),
-            ("Break-even Revenue", be["Break-even Revenue"], fmt_money),
-            ("Break-even Gap", be["Break-even Gap"], fmt_money),
-            ("Cash", totals["Cash"], fmt_money),
-            ("Cash Runway Months", totals["Cash Runway Months"], fmt_money),
+            ("Revenue", metrics["Revenue"]),
+            ("Gross Margin %", metrics["Gross Margin %"]),
+            ("EBITDA Margin %", metrics["EBITDA Margin %"]),
+            ("Net Profit", metrics["Net Profit"]),
+            ("Break-even Revenue", metrics["Break-even Revenue"]),
+            ("Break-even Gap", metrics["Break-even Gap"]),
+            ("Cash", metrics["Cash"]),
+            ("Cash Runway", metrics["Cash Runway"] if np.isfinite(metrics["Cash Runway"]) else 999),
         ]
-        r = 4
-        for idx, (label, value, fmt) in enumerate(kpis):
-            row = r + (idx // 4) * 3
-            col = (idx % 4) + 1
-            dash.write(row, col, label, fmt_header)
-            dash.write(row+1, col, value if not (isinstance(value, float) and np.isnan(value)) else 0, fmt)
+        row = 4
+        ws.write(row, 0, "Executive KPIs", fmt_header)
+        row += 1
+        for name, value in kpis:
+            ws.write(row, 0, name, fmt_subheader)
+            if name.endswith("%"):
+                ws.write_number(row, 1, value, fmt_pct)
+            else:
+                ws.write_number(row, 1, value, fmt_num)
+            row += 1
 
-        # Monthly data
-        data.to_excel(writer, sheet_name="Monthly Data", index=False)
-        ws = writer.sheets["Monthly Data"]
-        ws.right_to_left()
-        ws.freeze_panes(1, 0)
-        for c, col_name in enumerate(data.columns):
-            ws.write(0, c, col_name, fmt_header)
-            ws.set_column(c, c, max(14, min(24, len(str(col_name)) + 4)))
+        ws.write(row + 1, 0, "CFO Agent Commentary", fmt_header)
+        ws.merge_range(row + 2, 0, row + 14, 3, ai_report_text or "", fmt_note)
 
-        # Forecast
-        forecast_df.to_excel(writer, sheet_name="Forecast", index=False)
-        ws_f = writer.sheets["Forecast"]
-        ws_f.right_to_left()
-        ws_f.freeze_panes(1, 0)
-        for c, col_name in enumerate(forecast_df.columns):
-            ws_f.write(0, c, col_name, fmt_header)
-            ws_f.set_column(c, c, 18)
+        # Data sheets
+        monthly.to_excel(writer, sheet_name="Monthly_Data", index=False)
+        forecast.to_excel(writer, sheet_name="Forecast", index=False)
+        benchmarks.to_excel(writer, sheet_name="Benchmarks", index=False)
+        breakeven_df.to_excel(writer, sheet_name="Break_even", index=False)
+        recommendations.to_excel(writer, sheet_name="Recommendations", index=False)
 
-        # Break-even
-        be_df = pd.DataFrame([be])
-        be_df.to_excel(writer, sheet_name="Break-even", index=False)
-        ws_be = writer.sheets["Break-even"]
-        ws_be.right_to_left()
-        for c, col_name in enumerate(be_df.columns):
-            ws_be.write(0, c, col_name, fmt_header)
-            ws_be.set_column(c, c, 22)
+        for sheet_name in ["Monthly_Data", "Forecast", "Benchmarks", "Break_even", "Recommendations"]:
+            ws2 = writer.sheets[sheet_name]
+            ws2.freeze_panes(1, 0)
+            ws2.hide_gridlines(2)
+            df = {"Monthly_Data": monthly, "Forecast": forecast, "Benchmarks": benchmarks, "Break_even": breakeven_df, "Recommendations": recommendations}[sheet_name]
+            for c, col in enumerate(df.columns):
+                ws2.write(0, c, col, fmt_header)
+                width = min(max(12, len(str(col)) + 4), 38)
+                ws2.set_column(c, c, width)
+            # Conditional status formatting
+            if sheet_name == "Benchmarks" and "Status" in df.columns:
+                status_col = list(df.columns).index("Status")
+                for r in range(1, len(df) + 1):
+                    status = str(df.iloc[r-1]["Status"])
+                    cell_fmt = fmt_ok if status == "Healthy" else fmt_watch if status == "Watch" else fmt_risk
+                    ws2.write(r, status_col, status, cell_fmt)
 
-        # Benchmarks
-        bench_df.to_excel(writer, sheet_name="Benchmarks", index=False)
-        ws_b = writer.sheets["Benchmarks"]
-        ws_b.right_to_left()
-        ws_b.freeze_panes(1, 0)
-        for c, col_name in enumerate(bench_df.columns):
-            ws_b.write(0, c, col_name, fmt_header)
-            ws_b.set_column(c, c, 24 if col_name != "Comment" else 48)
-        status_col = list(bench_df.columns).index("Status")
-        for row_num, status in enumerate(bench_df["Status"], start=1):
-            fmt = fmt_good if status == "Healthy" else fmt_warn if status == "Watch" else fmt_risk
-            ws_b.write(row_num, status_col, status, fmt)
-
-        # Recommendations
-        rec_df.to_excel(writer, sheet_name="Recommendations", index=False)
-        ws_r = writer.sheets["Recommendations"]
-        ws_r.right_to_left()
-        ws_r.set_column("A:A", 24)
-        ws_r.set_column("B:B", 90)
-        ws_r.write(0, 0, "Area", fmt_header)
-        ws_r.write(0, 1, "Recommendation", fmt_header)
-
-        # Charts in Dashboard
-        chart = workbook.add_chart({"type": "line"})
-        # Find row count
-        n = len(data)
-        if n > 0:
-            rev_col = data.columns.get_loc("Revenue")
-            month_col = data.columns.get_loc("Month")
+        # Add charts on Monthly_Data
+        ws_m = writer.sheets["Monthly_Data"]
+        if len(monthly) >= 2:
+            chart = workbook.add_chart({"type": "line"})
+            revenue_col = list(monthly.columns).index("Revenue")
+            month_col = list(monthly.columns).index("Month")
             chart.add_series({
                 "name": "Revenue",
-                "categories": ["Monthly Data", 1, month_col, n, month_col],
-                "values": ["Monthly Data", 1, rev_col, n, rev_col],
-                "line": {"color": WAZEN_BLUE, "width": 2.25},
+                "categories": ["Monthly_Data", 1, month_col, len(monthly), month_col],
+                "values": ["Monthly_Data", 1, revenue_col, len(monthly), revenue_col],
+                "line": {"color": WAZEN_BLUE, "width": 2.5},
             })
             chart.set_title({"name": "Revenue Trend"})
             chart.set_legend({"none": True})
-            chart.set_size({"width": 680, "height": 320})
-            dash.insert_chart("A12", chart)
+            ws_m.insert_chart("Z2", chart, {"x_scale": 1.3, "y_scale": 1.2})
 
-        chart2 = workbook.add_chart({"type": "column"})
-        chart2.add_series({"name": "Revenue", "values": ["Dashboard", 5, 1, 5, 1], "fill": {"color": WAZEN_BLUE}})
-        chart2.add_series({"name": "Break-even", "values": ["Dashboard", 8, 1, 8, 1], "fill": {"color": WAZEN_ORANGE}})
-        chart2.set_title({"name": "Revenue vs Break-even"})
-        chart2.set_size({"width": 520, "height": 300})
-        dash.insert_chart("F12", chart2)
+    return output.getvalue()
 
-    output.seek(0)
-    return output
-
-
-def status_badge(status):
-    cls = "good" if status == "Healthy" else "warn" if status == "Watch" else "risk" if status == "Risk" else "small-note"
-    return f"<span class='{cls}'>{status}</span>"
-
-# =============================
-# SIDEBAR
-# =============================
+# ============================================================
+# Sidebar
+# ============================================================
 with st.sidebar:
-    st.image("https://dummyimage.com/240x60/17479E/ffffff&text=WAZEN", use_container_width=True)
+    st.markdown('<div class="sidebar-logo">WAZEN</div>', unsafe_allow_html=True)
     st.markdown("### إعدادات التحليل")
-    sector = st.selectbox("نوع النشاط / معيار المقارنة", ["خدمات عامة", "SaaS / خدمات تقنية", "تجارة", "تأجير ومعدات"])
-    forecast_months = st.slider("عدد أشهر التوقع", min_value=3, max_value=12, value=6)
-    st.markdown("---")
-    st.caption("هذه النسخة MVP متقدمة: Dashboard + KPIs + Break-even + Benchmarks + Forecast + Excel Report.")
+    industry = st.selectbox("نوع النشاط / معيار المقارنة", list(BENCHMARKS.keys()), index=0)
+    months_ahead = st.slider("عدد أشهر التوقع", min_value=3, max_value=12, value=6, step=1)
+    st.divider()
+    st.markdown("""
+<div class="small-muted">
+هذه النسخة تدعم ملفاً شهرياً مختصراً. للنتائج الرسمية يجب ربطها لاحقاً بميزان المراجعة، شجرة الحسابات، وحركة العملاء.
+</div>
+""", unsafe_allow_html=True)
 
-# =============================
-# HERO
-# =============================
+# ============================================================
+# Header
+# ============================================================
 st.markdown(
     """
-    <div class="hero">
-        <h1>📊 Wazen CFO Intelligence Agent</h1>
-        <p>تحليل مالي تنفيذي، نسب سلامة، نقطة تعادل، توقعات، توصيات، وتقرير Excel احترافي قابل للتحميل.</p>
-    </div>
-    """,
+<div class="hero">
+    <div class="hero-title">📊 Wazen CFO Intelligence Agent</div>
+    <div class="hero-subtitle">تحليل مالي تنفيذي، نسب سلامة، نقطة تعادل، توقعات، توصيات، وتصدير Excel احترافي.</div>
+</div>
+""",
     unsafe_allow_html=True,
 )
 
-uploaded_file = st.file_uploader("ارفعي ملف Excel أو CSV", type=["xlsx", "xls", "csv"])
+uploaded = st.file_uploader("ارفعي ملف Excel أو CSV", type=["xlsx", "xls", "csv"])
+st.info("الصيغة الحالية المطلوبة: Month | Revenue | COGS | Payroll | Marketing | Opex | Cash | Clients. يمكن أن تكون أسماء الأعمدة بالعربية أو الإنجليزية.")
 
-st.info("يدعم حالياً ملف شهري مختصر، ويدعم قراءة مبدئية لميزان المراجعة. للتنبؤ الحقيقي نحتاج بيانات شهرية.")
-
-if not uploaded_file:
+if uploaded is None:
+    st.warning("ارفعي ملفاً للبدء.")
     st.stop()
 
 try:
-    sheets = read_uploaded_file(uploaded_file)
-    sheet_name = st.selectbox("اختاري الشيت", list(sheets.keys())) if len(sheets) > 1 else list(sheets.keys())[0]
-    raw_df = sheets[sheet_name]
-    raw_df = normalize_columns(raw_df)
-
-    input_type = detect_input_type(raw_df)
-    st.caption(f"نوع الملف المكتشف: {input_type}")
-
-    if input_type == "monthly":
-        monthly = standardize_monthly(raw_df)
-        tb_normalized = None
-    elif input_type == "trial_balance":
-        tb_normalized = standardize_trial_balance(raw_df)
-        monthly = tb_to_single_period(tb_normalized)
-        st.warning("تم تحويل ميزان المراجعة إلى فترة واحدة. التوقع المالي يحتاج بيانات شهرية فعلية أو توزيع شهري.")
+    if uploaded.name.lower().endswith(".csv"):
+        raw = pd.read_csv(uploaded)
+        sheet_name = "CSV"
     else:
-        st.error("لم أستطع التعرف على بنية الملف. استخدمي ملف شهري أو ميزان مراجعة واضح الأعمدة.")
-        st.stop()
-
-    data = compute_kpis(monthly)
-    totals = aggregate_totals(data)
-    be = break_even_analysis(totals)
-    bench_df = build_benchmarks(totals, sector)
-    rec_df = generate_recommendations(totals, be, bench_df)
-    forecast_df = forecast_financials(data, months_ahead=forecast_months)
-
+        xl = pd.ExcelFile(uploaded)
+        sheet_name = st.selectbox("اختاري الشيت", xl.sheet_names)
+        raw = pd.read_excel(uploaded, sheet_name=sheet_name)
 except Exception as e:
-    st.error(f"حدث خطأ أثناء قراءة الملف: {e}")
+    st.error(f"تعذر قراءة الملف: {e}")
     st.stop()
 
-# =============================
-# EXECUTIVE DASHBOARD
-# =============================
-st.markdown("<div class='section-title'>1. Executive Dashboard</div>", unsafe_allow_html=True)
+cols = detect_columns(raw)
+if cols["revenue"] is None:
+    st.error("لم أستطع تحديد عمود الإيرادات. تأكدي من وجود Revenue أو Sales أو الإيرادات.")
+    st.stop()
 
-kpi_cols = st.columns(4)
-metrics = [
-    ("Revenue", money(totals["Revenue"]), "إجمالي الإيرادات"),
-    ("Gross Margin", pct(totals["Gross Margin %"]), "هامش الربح الإجمالي"),
-    ("EBITDA Margin", pct(totals["EBITDA Margin %"]), "كفاءة التشغيل قبل الإهلاك"),
-    ("Net Profit", money(totals["Net Profit"]), "صافي الربح التقديري"),
-]
-for col, (label, value, note) in zip(kpi_cols, metrics):
-    with col:
-        st.markdown(f"<div class='metric-card'><div class='metric-label'>{label}</div><div class='metric-value'>{value}</div><div class='metric-note'>{note}</div></div>", unsafe_allow_html=True)
+monthly = prepare_data(raw, cols)
+metrics = aggregate_metrics(monthly)
+benchmarks = assess_benchmarks(metrics, industry)
+score = score_company(benchmarks)
+recommendations = generate_recommendations(metrics, benchmarks)
+forecast = forecast_scenarios(monthly, months_ahead=months_ahead)
+breakeven_df = pd.DataFrame([
+    {"Metric": "Revenue", "Value": metrics["Revenue"]},
+    {"Metric": "Variable Cost Ratio", "Value": metrics["Variable Cost Ratio"]},
+    {"Metric": "Contribution Margin Ratio", "Value": metrics["Contribution Margin Ratio"]},
+    {"Metric": "Fixed Costs", "Value": metrics["Fixed Costs"]},
+    {"Metric": "Break-even Revenue", "Value": metrics["Break-even Revenue"]},
+    {"Metric": "Break-even Gap", "Value": metrics["Break-even Gap"]},
+])
 
-kpi_cols2 = st.columns(4)
-metrics2 = [
-    ("Break-even Revenue", money(be["Break-even Revenue"]), "الإيراد المطلوب للتعادل"),
-    ("Break-even Gap", money(be["Break-even Gap"]), be["Break-even Status"]),
-    ("Cash", money(totals["Cash"]), "آخر رصيد نقدي متاح"),
-    ("Runway", "N/A" if np.isnan(totals["Cash Runway Months"]) else f"{totals['Cash Runway Months']:.1f} شهر", "مدة كفاية النقد"),
-]
-for col, (label, value, note) in zip(kpi_cols2, metrics2):
-    with col:
-        st.markdown(f"<div class='metric-card'><div class='metric-label'>{label}</div><div class='metric-value'>{value}</div><div class='metric-note'>{note}</div></div>", unsafe_allow_html=True)
+# ============================================================
+# Tabs
+# ============================================================
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "Executive Dashboard",
+    "Financial Ratios",
+    "Break-even",
+    "Forecast",
+    "CFO Recommendations",
+    "Export",
+])
 
-# =============================
-# CHARTS
-# =============================
-st.markdown("<div class='section-title'>2. Financial Visuals</div>", unsafe_allow_html=True)
-chart_col1, chart_col2 = st.columns(2)
-with chart_col1:
-    fig = px.line(data, x="Month", y="Revenue", markers=True, title="Revenue Trend")
-    fig.update_traces(line=dict(color=WAZEN_BLUE, width=3))
-    fig.update_layout(height=380, plot_bgcolor="white", paper_bgcolor="white")
-    st.plotly_chart(fig, use_container_width=True)
-with chart_col2:
-    margin_df = data[["Month", "Gross Margin %", "EBITDA Margin %", "Net Margin %"]].melt(id_vars="Month")
-    fig2 = px.line(margin_df, x="Month", y="value", color="variable", markers=True, title="Margin Trends")
-    fig2.update_layout(height=380, yaxis_tickformat=".0%", plot_bgcolor="white", paper_bgcolor="white")
-    st.plotly_chart(fig2, use_container_width=True)
+with tab1:
+    st.markdown('<div class="section-title">1. Executive Dashboard</div>', unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(f'<div class="card"><div class="kpi-label">Revenue</div><div class="kpi-value">{fmt_money(metrics["Revenue"])}</div><div class="kpi-note">إجمالي الإيرادات</div></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown(f'<div class="card"><div class="kpi-label">Gross Margin</div><div class="kpi-value">{fmt_pct(metrics["Gross Margin %"])}</div><div class="kpi-note">هامش الربح الإجمالي</div></div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown(f'<div class="card"><div class="kpi-label">EBITDA Margin</div><div class="kpi-value">{fmt_pct(metrics["EBITDA Margin %"])}</div><div class="kpi-note">كفاءة التشغيل</div></div>', unsafe_allow_html=True)
+    with c4:
+        st.markdown(f'<div class="card"><div class="kpi-label">Financial Health Score</div><div class="kpi-value">{score}/100</div><div class="kpi-note">مبني على معايير السلامة</div></div>', unsafe_allow_html=True)
 
-# =============================
-# BENCHMARKS
-# =============================
-st.markdown("<div class='section-title'>3. Financial Safety Ratios</div>", unsafe_allow_html=True)
-bench_display = bench_df.copy()
-bench_display["Actual"] = bench_display.apply(lambda r: f"{r['Actual']:.1f}" if "Months" in r["Metric"] else f"{r['Actual']:.1%}", axis=1)
-bench_display["Benchmark"] = bench_display.apply(lambda r: f"{r['Benchmark']:.1f}" if "Months" in r["Metric"] else f"{r['Benchmark']:.1%}", axis=1)
-st.dataframe(bench_display, use_container_width=True, hide_index=True)
+    c5, c6, c7, c8 = st.columns(4)
+    with c5:
+        st.markdown(f'<div class="card"><div class="kpi-label">Net Profit</div><div class="kpi-value">{fmt_money(metrics["Net Profit"])}</div><div class="kpi-note">صافي الربح</div></div>', unsafe_allow_html=True)
+    with c6:
+        st.markdown(f'<div class="card"><div class="kpi-label">Break-even Gap</div><div class="kpi-value">{fmt_money(metrics["Break-even Gap"])}</div><div class="kpi-note">إيراد فعلي ناقص التعادل</div></div>', unsafe_allow_html=True)
+    with c7:
+        runway_txt = "∞" if not np.isfinite(metrics["Cash Runway"]) else f'{metrics["Cash Runway"]:.1f} mo'
+        st.markdown(f'<div class="card"><div class="kpi-label">Cash Runway</div><div class="kpi-value">{runway_txt}</div><div class="kpi-note">مدى السيولة</div></div>', unsafe_allow_html=True)
+    with c8:
+        st.markdown(f'<div class="card"><div class="kpi-label">ARPU</div><div class="kpi-value">{fmt_money(metrics["ARPU"])}</div><div class="kpi-note">متوسط الإيراد للعميل</div></div>', unsafe_allow_html=True)
 
-# =============================
-# BREAK-EVEN
-# =============================
-st.markdown("<div class='section-title'>4. Break-even Analysis</div>", unsafe_allow_html=True)
-be_col1, be_col2 = st.columns([1, 1])
-with be_col1:
-    st.table(pd.DataFrame([
-        {"Metric": "Revenue", "Value": money(be["Revenue"])},
-        {"Metric": "Variable Cost Ratio", "Value": pct(be["Variable Cost Ratio"])},
-        {"Metric": "Contribution Margin Ratio", "Value": pct(be["Contribution Margin Ratio"])},
-        {"Metric": "Fixed Costs", "Value": money(be["Fixed Costs"])},
-        {"Metric": "Break-even Revenue", "Value": money(be["Break-even Revenue"])},
-        {"Metric": "Gap", "Value": money(be["Break-even Gap"])},
-    ]))
-with be_col2:
-    fig3 = go.Figure()
-    fig3.add_trace(go.Bar(name="Revenue", x=["Actual Revenue"], y=[be["Revenue"]], marker_color=WAZEN_BLUE))
-    fig3.add_trace(go.Bar(name="Break-even", x=["Break-even Revenue"], y=[be["Break-even Revenue"]], marker_color=WAZEN_ORANGE))
-    fig3.update_layout(height=360, title="Actual Revenue vs Break-even", plot_bgcolor="white", paper_bgcolor="white")
-    st.plotly_chart(fig3, use_container_width=True)
+    left, right = st.columns(2)
+    with left:
+        st.plotly_chart(fig_line(monthly, "Month", "Revenue", "Revenue Trend"), use_container_width=True)
+    with right:
+        st.plotly_chart(fig_line(monthly, "Month", ["Gross Margin %", "EBITDA Margin %", "Net Margin %"], "Margin Trends", percent=True), use_container_width=True)
 
-# =============================
-# FORECAST
-# =============================
-st.markdown("<div class='section-title'>5. Forecast & Scenarios</div>", unsafe_allow_html=True)
-if forecast_df.empty:
-    st.warning("لا يمكن بناء توقع مالي لأن البيانات أقل من شهرين.")
-else:
-    pivot_forecast = forecast_df.pivot(index="Month", columns="Scenario", values="Revenue").reset_index()
-    st.dataframe(pivot_forecast, use_container_width=True, hide_index=True)
-    fig4 = px.line(forecast_df, x="Month", y="Revenue", color="Scenario", markers=True, title="Revenue Forecast Scenarios")
-    fig4.update_layout(height=420, plot_bgcolor="white", paper_bgcolor="white")
-    st.plotly_chart(fig4, use_container_width=True)
+    with st.expander("عرض البيانات الشهرية"):
+        st.dataframe(monthly, use_container_width=True)
 
-# =============================
-# RECOMMENDATIONS
-# =============================
-st.markdown("<div class='section-title'>6. CFO Recommendations</div>", unsafe_allow_html=True)
-st.dataframe(rec_df, use_container_width=True, hide_index=True)
+with tab2:
+    st.markdown('<div class="section-title">2. Financial Safety Ratios</div>', unsafe_allow_html=True)
+    styled = benchmarks.copy()
+    display_df = styled.copy()
+    for col in ["Actual", "Benchmark", "Gap"]:
+        display_df[col] = display_df.apply(lambda r: fmt_pct(r[col]) if r["Metric"].endswith("%") else ("∞" if not np.isfinite(r[col]) else f"{r[col]:,.1f}"), axis=1)
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-with st.expander("عرض البيانات المحسوبة"):
-    st.dataframe(data, use_container_width=True)
-    if tb_normalized is not None:
-        st.markdown("#### Trial Balance Mapping")
-        st.dataframe(tb_normalized, use_container_width=True)
+    st.markdown("#### Interpretation")
+    risks = benchmarks[benchmarks["Status"] == "Risk"]
+    watches = benchmarks[benchmarks["Status"] == "Watch"]
+    if risks.empty and watches.empty:
+        st.success("المؤشرات ضمن نطاق صحي وفق معيار النشاط المختار.")
+    else:
+        if not risks.empty:
+            st.error("مؤشرات خطر: " + ", ".join(risks["Metric"].tolist()))
+        if not watches.empty:
+            st.warning("مؤشرات تحتاج مراقبة: " + ", ".join(watches["Metric"].tolist()))
 
-# =============================
-# AI REPORT
-# =============================
-st.markdown("<div class='section-title'>7. AI CFO Narrative</div>", unsafe_allow_html=True)
-if st.button("Generate Advanced CFO Report"):
-    with st.spinner("جاري توليد التقرير التنفيذي..."):
-        st.markdown(ai_cfo_report(totals, be, bench_df, rec_df, forecast_df))
+with tab3:
+    st.markdown('<div class="section-title">3. Break-even Analysis</div>', unsafe_allow_html=True)
+    col_a, col_b = st.columns([1, 1])
+    with col_a:
+        temp = breakeven_df.copy()
+        temp["Value"] = temp.apply(lambda r: fmt_pct(r["Value"]) if "Ratio" in r["Metric"] else fmt_money(r["Value"]), axis=1)
+        st.dataframe(temp, use_container_width=True, hide_index=True)
+    with col_b:
+        st.plotly_chart(fig_bar_be(metrics), use_container_width=True)
+    if metrics["Break-even Gap"] < 0:
+        st.error(f"الشركة دون نقطة التعادل بفجوة تقريبية: {fmt_money(abs(metrics['Break-even Gap']))}.")
+    else:
+        st.success(f"الشركة أعلى من نقطة التعادل بفائض تقريبي: {fmt_money(metrics['Break-even Gap'])}.")
 
-# =============================
-# EXCEL EXPORT
-# =============================
-st.markdown("<div class='section-title'>8. Professional Excel Output</div>", unsafe_allow_html=True)
-excel_file = create_excel_report(data, totals, be, bench_df, rec_df, forecast_df)
-st.download_button(
-    label="Download Professional CFO Excel Report",
-    data=excel_file,
-    file_name="wazen_cfo_intelligence_report.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-)
+with tab4:
+    st.markdown('<div class="section-title">4. Forecast & Scenarios</div>', unsafe_allow_html=True)
+    if forecast.empty:
+        st.warning("نحتاج شهرين على الأقل لبناء توقع.")
+    else:
+        pivot_rev = forecast.pivot(index="Month", columns="Scenario", values="Revenue").reset_index()
+        st.dataframe(pivot_rev, use_container_width=True, hide_index=True)
+        fig = go.Figure()
+        for scenario, color in [("Base", WAZEN_BLUE), ("Optimistic", HEALTHY), ("Pessimistic", RISK)]:
+            df_s = forecast[forecast["Scenario"] == scenario]
+            fig.add_trace(go.Scatter(x=df_s["Month"], y=df_s["Revenue"], mode="lines+markers", name=scenario, line=dict(width=3, color=color)))
+        fig.update_layout(title="Revenue Forecast Scenarios", height=420, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+        fig.update_yaxes(gridcolor="#E5E7EB")
+        st.plotly_chart(fig, use_container_width=True)
+
+with tab5:
+    st.markdown('<div class="section-title">5. CFO Recommendations</div>', unsafe_allow_html=True)
+    st.dataframe(recommendations, use_container_width=True, hide_index=True)
+    st.markdown("#### AI CFO Commentary")
+    if st.button("Generate Advanced CFO Commentary"):
+        with st.spinner("Generating CFO commentary..."):
+            report = ai_cfo_report(metrics, benchmarks, recommendations, forecast)
+            st.session_state["ai_report"] = report
+    st.markdown(st.session_state.get("ai_report", "اضغطي الزر لتوليد تعليق CFO متقدم عند تفعيل مفتاح OpenAI."))
+
+with tab6:
+    st.markdown('<div class="section-title">6. Export Professional CFO Pack</div>', unsafe_allow_html=True)
+    ai_text = st.session_state.get("ai_report", "")
+    excel_bytes = create_excel(monthly, metrics, benchmarks, breakeven_df, forecast, recommendations, ai_text)
+    st.download_button(
+        "Download Professional Excel CFO Pack",
+        data=excel_bytes,
+        file_name="wazen_professional_cfo_pack.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    st.caption("الملف يحتوي Dashboard، بيانات شهرية، Forecast، Break-even، Benchmarks، Recommendations.")
