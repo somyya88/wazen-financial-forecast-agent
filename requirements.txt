@@ -3,6 +3,5 @@ pandas
 numpy
 openpyxl
 plotly
-scikit-learn
-openai
 xlsxwriter
+openai
