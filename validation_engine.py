@@ -1,5 +1,5 @@
 import pandas as pd
-from core.source_roles import validate_source_roles
+from source_roles import validate_source_roles
 
 def validate_project(file_rows: list[dict], revenue_model: dict | None = None, expense_model: dict | None = None, tb_model: dict | None = None) -> list[dict]:
     checks = []

@@ -1,5 +1,5 @@
 import pandas as pd
-from core.utils import find_column, to_number, normalize_text
+from utils import find_column, to_number, normalize_text
 
 ACCOUNT_RULES = {
     "Assets": ["نقد", "بنك", "صندوق", "ذمم مدينة", "عملاء", "اصل", "أصل", "assets", "cash", "bank", "receivable"],

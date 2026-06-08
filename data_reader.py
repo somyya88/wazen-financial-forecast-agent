@@ -1,6 +1,6 @@
 import pandas as pd
 from io import BytesIO
-from core.utils import normalize_columns
+from utils import normalize_columns
 
 def read_excel_file(uploaded_file):
     """

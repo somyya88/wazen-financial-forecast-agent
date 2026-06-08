@@ -1,4 +1,4 @@
-from core.utils import find_column, detect_month_columns
+from utils import find_column, detect_month_columns
 
 def default_mapping(df):
     return {

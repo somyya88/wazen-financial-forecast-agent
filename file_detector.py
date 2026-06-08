@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import pandas as pd
-from core.utils import normalize_text, detect_month_columns
+from utils import normalize_text, detect_month_columns
 
 @dataclass
 class DetectionResult:

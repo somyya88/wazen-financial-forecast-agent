@@ -2,19 +2,19 @@ import streamlit as st
 import pandas as pd
 
 from config import APP_NAME, SOURCE_ROLES, REVENUE_DEFINITIONS, ANALYSIS_MODES
-from core.data_reader import read_excel_file
-from core.file_detector import detect_file_type
-from core.source_roles import suggest_role
-from core.revenue_engine import build_revenue_model
-from core.expense_engine import build_expense_model
-from core.trial_balance_engine import parse_trial_balance
-from core.validation_engine import validate_project
-from core.financial_model import build_basic_financial_model
-from core.analysis_router import tabs_for_mode
-from ui.theme import apply_theme
-from ui.cards import kpi_card, section_header, message_box
-from ui.charts import line_chart, bar_chart, pie_chart
-from export.excel_pack import build_excel_pack
+from data_reader import read_excel_file
+from file_detector import detect_file_type
+from source_roles import suggest_role
+from revenue_engine import build_revenue_model
+from expense_engine import build_expense_model
+from trial_balance_engine import parse_trial_balance
+from validation_engine import validate_project
+from financial_model import build_basic_financial_model
+from analysis_router import tabs_for_mode
+from theme import apply_theme
+from cards import kpi_card, section_header, message_box
+from charts import line_chart, bar_chart, pie_chart
+from excel_pack import build_excel_pack
 
 st.set_page_config(page_title=APP_NAME, page_icon="📊", layout="wide")
 apply_theme()

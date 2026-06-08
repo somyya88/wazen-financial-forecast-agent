@@ -1,5 +1,5 @@
 import pandas as pd
-from core.utils import detect_month_columns, to_number, month_label, find_column, normalize_text
+from utils import detect_month_columns, to_number, month_label, find_column, normalize_text
 
 CATEGORY_RULES = {
     "Payroll": ["راتب", "رواتب", "اجور", "أجور", "salary", "payroll", "wage"],
