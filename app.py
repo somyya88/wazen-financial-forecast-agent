@@ -16,6 +16,7 @@ from ratio_engine import build_ratios
 from breakeven_engine import build_breakeven
 from forecast_engine import build_forecast
 from glossary_engine import build_glossary
+from mapping_engine import build_expense_mapping, apply_expense_mapping, CATEGORY_OPTIONS, COST_BEHAVIOR_OPTIONS
 from analysis_router import tabs_for_mode
 from theme import apply_theme
 from cards import kpi_card, section_header, message_box
@@ -33,6 +34,8 @@ if "models" not in st.session_state:
     st.session_state.models = {}
 if "selected_months" not in st.session_state:
     st.session_state.selected_months = []
+if "expense_mapping" not in st.session_state:
+    st.session_state.expense_mapping = None
 
 st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V7</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
@@ -42,6 +45,7 @@ if st.button("تحديث / مسح النموذج السابق"):
     st.session_state.file_rows = []
     st.session_state.models = {}
     st.session_state.selected_months = []
+    st.session_state.expense_mapping = None
     st.rerun()
 
 
@@ -195,6 +199,31 @@ if st.session_state.files:
     if revenue_months and expense_months and set(revenue_months) != set(expense_months):
         message_box("يوجد اختلاف بين شهور الإيرادات والمصاريف. تم اقتراح الشهور المشتركة فقط.", "warning")
 
+    section_header("4. تصنيف المصاريف Expense Mapping")
+
+    if preview_expense_model and not preview_expense_model.get("expense_long", pd.DataFrame()).empty:
+        initial_mapping = build_expense_mapping(preview_expense_model, industry)
+        if st.session_state.expense_mapping is None:
+            st.session_state.expense_mapping = initial_mapping
+
+        st.info("راجعي تصنيف الحسابات ونوع التكلفة قبل بناء P&L وBreak-even. هذا أهم جزء لدقة التحليل.")
+        edited_mapping = st.data_editor(
+            st.session_state.expense_mapping,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "account_name": st.column_config.TextColumn("الحساب", disabled=True),
+                "current_category": st.column_config.TextColumn("التصنيف الحالي", disabled=True),
+                "user_category": st.column_config.SelectboxColumn("التصنيف المعتمد", options=CATEGORY_OPTIONS),
+                "cost_behavior": st.column_config.SelectboxColumn("نوع التكلفة", options=COST_BEHAVIOR_OPTIONS),
+                "amount": st.column_config.NumberColumn("المبلغ", format="%.2f", disabled=True),
+            },
+            key="expense_mapping_editor",
+        )
+        st.session_state.expense_mapping = edited_mapping
+    else:
+        message_box("لا توجد مصاريف كافية لبناء Expense Mapping.", "warning")
+
     if st.button("بناء النموذج المالي الأولي"):
         readable_files = [r for r in st.session_state.files if not r.get("read_error")]
         revenue_record = next((r for r in readable_files if r["selected_role"] == "official_revenue_source"), None)
@@ -203,6 +232,10 @@ if st.session_state.files:
 
         revenue_model = build_revenue_model(revenue_record, revenue_definition) if revenue_record else None
         expense_model = build_expense_model(expense_record, revenue_model.get("total_revenue", 0) if revenue_model else 0) if expense_record else None
+
+        # Apply user-approved expense mapping before period filtering and financial modeling.
+        if expense_model and st.session_state.expense_mapping is not None:
+            expense_model = apply_expense_mapping(expense_model, st.session_state.expense_mapping)
 
         # Apply confirmed analysis period.
         confirmed_months = st.session_state.selected_months
@@ -238,6 +271,7 @@ if st.session_state.files:
             "forecast_note": forecast_note,
             "glossary_model": glossary_model,
             "confirmed_months": confirmed_months,
+            "expense_mapping": st.session_state.expense_mapping,
         }
         st.success("تم بناء النموذج المالي الأولي.")
 
@@ -253,13 +287,14 @@ if st.session_state.models:
     breakeven_model = models.get("breakeven_model", {})
     forecast_model = models.get("forecast_model", pd.DataFrame())
     glossary_model = models.get("glossary_model", pd.DataFrame())
+    expense_mapping_model = models.get("expense_mapping", pd.DataFrame())
 
     section_header("3. فحص جودة البيانات")
 
     for check in validation_checks:
         message_box(f"**{check['check']}** — {check['message']}", check["level"])
 
-    section_header("4. Dashboard أولي")
+    section_header("5. Dashboard أولي")
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -282,7 +317,7 @@ if st.session_state.models:
         kpi_card("Next Decision / القرار القادم", "", ratio_model.get("next_decision", ""))
 
     active_tabs = tabs_for_mode(analysis_mode)
-    section_header("5. الصفحات المفعلة حسب نوع التحليل")
+    section_header("6. الصفحات المفعلة حسب نوع التحليل")
     st.write(" / ".join(active_tabs))
 
     tabs = st.tabs(active_tabs)
@@ -315,6 +350,13 @@ if st.session_state.models:
                     st.dataframe(show, use_container_width=True)
                 message_box(ratio_model.get("biggest_risk", ""), "warning")
                 message_box(ratio_model.get("next_decision", ""), "info")
+
+            elif tab_name == "Expense Mapping":
+                st.subheader("Expense Mapping المعتمد")
+                if expense_mapping_model is not None and not expense_mapping_model.empty:
+                    st.dataframe(expense_mapping_model, use_container_width=True)
+                else:
+                    st.info("لا توجد خريطة تصنيف معتمدة.")
 
             elif tab_name in ["Expenses", "Top Expenses", "Cost Structure"]:
                 st.subheader("تحليل المصاريف")
@@ -365,6 +407,7 @@ if st.session_state.models:
                     forecast_model=forecast_model,
                     glossary_model=glossary_model,
                     confirmed_months=models.get("confirmed_months", []),
+                    expense_mapping=expense_mapping_model,
                 )
                 st.download_button(
                     "تحميل Excel CFO Pack",

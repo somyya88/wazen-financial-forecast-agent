@@ -2,7 +2,7 @@ import pandas as pd
 
 COGS_CATEGORIES = ["COGS", "Fuel", "Maintenance", "Spare Parts"]
 DEPRECIATION_CATEGORIES = ["Depreciation"]
-FINANCE_CATEGORIES = ["Interest", "Bank Charges"]
+FINANCE_CATEGORIES = ["Finance Costs", "Interest", "Bank Charges"]
 
 def build_pnl(revenue_model, expense_model):
     revenue = float(revenue_model.get("total_revenue", 0)) if revenue_model else 0
@@ -25,7 +25,7 @@ def build_pnl(revenue_model, expense_model):
 
     pnl = pd.DataFrame([
         ["Revenue", "الإيرادات", revenue],
-        ["COGS", "تكلفة الإيراد", cogs],
+        ["COGS / Direct Costs", "تكلفة الإيراد / التكاليف المباشرة", cogs],
         ["Gross Profit", "مجمل الربح", gross_profit],
         ["Operating Expenses", "المصاريف التشغيلية", opex],
         ["EBITDA", "الربح قبل الفوائد والضرائب والإهلاك", ebitda],
@@ -47,7 +47,7 @@ def build_pnl(revenue_model, expense_model):
         "finance_costs": finance_costs,
         "net_profit": net_profit,
         "total_expenses": total_expenses,
-        "note": "تم بناء قائمة الدخل بناءً على تصنيف المصاريف الحالي. يمكن تحسين الدقة لاحقاً عبر Mapping يدوي للحسابات."
+        "note": "تم بناء قائمة الدخل بناءً على Expense Mapping. دقة القائمة تعتمد على صحة تصنيف الحسابات."
     }
 
 def monthly_pnl(revenue_model, expense_model):

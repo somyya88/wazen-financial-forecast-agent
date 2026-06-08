@@ -10,7 +10,7 @@ def build_ratios(pnl_model, expense_model=None):
         ["EBITDA Margin %", "هامش EBITDA", safe_div(pnl_model.get("ebitda", 0), revenue), "يقيس ربحية النشاط قبل الإهلاك والتمويل."],
         ["Net Margin %", "هامش صافي الربح", safe_div(pnl_model.get("net_profit", 0), revenue), "يقيس النتيجة النهائية مقابل الإيرادات."],
         ["Opex Ratio %", "نسبة المصاريف التشغيلية", safe_div(pnl_model.get("opex", 0), revenue), "يقيس عبء المصاريف التشغيلية على الإيرادات."],
-        ["COGS Ratio %", "نسبة تكلفة الإيراد", safe_div(pnl_model.get("cogs", 0), revenue), "يقيس تكلفة تقديم الخدمة أو المنتج."],
+        ["Direct Cost Ratio %", "نسبة التكلفة المباشرة", safe_div(pnl_model.get("cogs", 0), revenue), "يقيس تكلفة تقديم الخدمة أو المنتج."],
         ["Expense Ratio %", "نسبة إجمالي المصاريف", safe_div(pnl_model.get("total_expenses", 0), revenue), "يقيس إجمالي المصاريف إلى الإيرادات."],
     ]
 

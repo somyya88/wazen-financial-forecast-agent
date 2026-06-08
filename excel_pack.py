@@ -13,6 +13,7 @@ def build_excel_pack(
     forecast_model=None,
     glossary_model=None,
     confirmed_months=None,
+    expense_mapping=None,
 ) -> bytes:
     output = BytesIO()
     pnl_model = pnl_model or {}
@@ -21,6 +22,7 @@ def build_excel_pack(
     forecast_model = forecast_model if forecast_model is not None else pd.DataFrame()
     glossary_model = glossary_model if glossary_model is not None else pd.DataFrame()
     confirmed_months = confirmed_months or []
+    expense_mapping = expense_mapping if expense_mapping is not None else pd.DataFrame()
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         workbook = writer.book
@@ -72,6 +74,10 @@ def build_excel_pack(
                 expense_model["by_category"].to_excel(writer, sheet_name="Expense Structure", index=False)
             if not expense_model.get("top_expenses", pd.DataFrame()).empty:
                 expense_model["top_expenses"].to_excel(writer, sheet_name="Top Expenses", index=False)
+
+        # Expense Mapping
+        if not expense_mapping.empty:
+            expense_mapping.to_excel(writer, sheet_name="Expense Mapping", index=False)
 
         # P&L
         pnl_df = pnl_model.get("pnl", pd.DataFrame())
