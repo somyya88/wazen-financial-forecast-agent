@@ -58,8 +58,26 @@ if uploaded_files and st.button("قراءة واكتشاف الملفات"):
     st.session_state.files = []
     st.session_state.file_rows = []
 
+    errors = []
     for uploaded in uploaded_files:
         data = read_excel_file(uploaded)
+
+        if data.get("error"):
+            record = {
+                "file_name": data["file_name"],
+                "sheets": data.get("sheets", {}),
+                "primary_df": data.get("primary_df", pd.DataFrame()),
+                "detected_type": "unknown",
+                "confidence": 0.0,
+                "reasons": [data["error"]],
+                "suggested_role": "ignored",
+                "selected_role": "ignored",
+                "read_error": data["error"],
+            }
+            st.session_state.files.append(record)
+            errors.append(f"{data['file_name']}: {data['error']}")
+            continue
+
         detection = detect_file_type(data["primary_df"])
         role = suggest_role(detection.file_type)
 
@@ -72,10 +90,14 @@ if uploaded_files and st.button("قراءة واكتشاف الملفات"):
             "reasons": detection.reasons,
             "suggested_role": role,
             "selected_role": role,
+            "read_error": None,
         }
         st.session_state.files.append(record)
 
-    st.success("تمت قراءة الملفات واكتشاف أنواعها.")
+    if errors:
+        st.warning("تم رفع بعض الملفات لكن تعذر قراءة بعضها. راجعي التنبيهات تحت كل ملف.")
+    else:
+        st.success("تمت قراءة الملفات واكتشاف أنواعها.")
 
 if st.session_state.files:
     section_header("2. تحديد دور كل ملف")
@@ -101,8 +123,13 @@ if st.session_state.files:
                 "suggested_role": record["suggested_role"],
                 "selected_role": selected,
             })
+            if record.get("read_error"):
+                message_box(record["read_error"], "warning")
             with st.expander("معاينة أول 5 صفوف"):
-                st.dataframe(record["primary_df"].head(), use_container_width=True)
+                if record["primary_df"].empty:
+                    st.info("لا توجد بيانات قابلة للعرض لهذا الملف.")
+                else:
+                    st.dataframe(record["primary_df"].head(), use_container_width=True)
 
     st.session_state.file_rows = updated_rows
 
@@ -121,9 +148,10 @@ if st.session_state.files:
         message_box(w, "warning")
 
     if st.button("بناء النموذج المالي الأولي"):
-        revenue_record = next((r for r in st.session_state.files if r["selected_role"] == "official_revenue_source"), None)
-        expense_record = next((r for r in st.session_state.files if r["selected_role"] == "official_expense_source"), None)
-        tb_record = next((r for r in st.session_state.files if r["selected_role"] == "validation_source" and r["detected_type"] == "trial_balance"), None)
+        readable_files = [r for r in st.session_state.files if not r.get("read_error")]
+        revenue_record = next((r for r in readable_files if r["selected_role"] == "official_revenue_source"), None)
+        expense_record = next((r for r in readable_files if r["selected_role"] == "official_expense_source"), None)
+        tb_record = next((r for r in readable_files if r["selected_role"] == "validation_source" and r["detected_type"] == "trial_balance"), None)
 
         revenue_model = build_revenue_model(revenue_record, revenue_definition) if revenue_record else None
         revenue_total = revenue_model.get("total_revenue", 0) if revenue_model else 0
