@@ -10,6 +10,12 @@ from expense_engine import build_expense_model
 from trial_balance_engine import parse_trial_balance
 from validation_engine import validate_project
 from financial_model import build_basic_financial_model
+from period_engine import months_from_revenue_model, months_from_expense_model, common_months, filter_revenue_model, filter_expense_model
+from financial_statement_engine import build_pnl, monthly_pnl
+from ratio_engine import build_ratios
+from breakeven_engine import build_breakeven
+from forecast_engine import build_forecast
+from glossary_engine import build_glossary
 from analysis_router import tabs_for_mode
 from theme import apply_theme
 from cards import kpi_card, section_header, message_box
@@ -25,6 +31,8 @@ if "file_rows" not in st.session_state:
     st.session_state.file_rows = []
 if "models" not in st.session_state:
     st.session_state.models = {}
+if "selected_months" not in st.session_state:
+    st.session_state.selected_months = []
 
 st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V7</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
@@ -33,6 +41,7 @@ if st.button("تحديث / مسح النموذج السابق"):
     st.session_state.files = []
     st.session_state.file_rows = []
     st.session_state.models = {}
+    st.session_state.selected_months = []
     st.rerun()
 
 
@@ -158,6 +167,34 @@ if st.session_state.files:
     for w in role_warnings:
         message_box(w, "warning")
 
+    section_header("3. تأكيد فترة التحليل")
+
+    readable_files_preview = [r for r in st.session_state.files if not r.get("read_error")]
+    revenue_preview_record = next((r for r in readable_files_preview if r["selected_role"] == "official_revenue_source"), None)
+    expense_preview_record = next((r for r in readable_files_preview if r["selected_role"] == "official_expense_source"), None)
+
+    preview_revenue_model = build_revenue_model(revenue_preview_record, revenue_definition) if revenue_preview_record else None
+    preview_expense_model = build_expense_model(expense_preview_record, preview_revenue_model.get("total_revenue", 0) if preview_revenue_model else 0) if expense_preview_record else None
+
+    revenue_months = months_from_revenue_model(preview_revenue_model)
+    expense_months = months_from_expense_model(preview_expense_model)
+    suggested_months = common_months(revenue_months, expense_months)
+
+    st.markdown(f"**شهور الإيرادات المكتشفة:** {', '.join(revenue_months) if revenue_months else 'غير متاح'}")
+    st.markdown(f"**شهور المصاريف المكتشفة:** {', '.join(expense_months) if expense_months else 'غير متاح'}")
+    st.markdown(f"**الفترة المقترحة للتحليل:** {', '.join(suggested_months) if suggested_months else 'غير متاح'}")
+
+    selected_months = st.multiselect(
+        "اعتمدي شهور التحليل",
+        options=suggested_months or revenue_months or expense_months,
+        default=st.session_state.selected_months or suggested_months or revenue_months or expense_months,
+        help="الإيجنت يقرأ الشهور تلقائياً، لكن يجب اعتماد الفترة لتجنب دخول شهر غير مكتمل."
+    )
+    st.session_state.selected_months = selected_months
+
+    if revenue_months and expense_months and set(revenue_months) != set(expense_months):
+        message_box("يوجد اختلاف بين شهور الإيرادات والمصاريف. تم اقتراح الشهور المشتركة فقط.", "warning")
+
     if st.button("بناء النموذج المالي الأولي"):
         readable_files = [r for r in st.session_state.files if not r.get("read_error")]
         revenue_record = next((r for r in readable_files if r["selected_role"] == "official_revenue_source"), None)
@@ -165,12 +202,27 @@ if st.session_state.files:
         tb_record = next((r for r in readable_files if r["selected_role"] == "validation_source" and r["detected_type"] == "trial_balance"), None)
 
         revenue_model = build_revenue_model(revenue_record, revenue_definition) if revenue_record else None
-        revenue_total = revenue_model.get("total_revenue", 0) if revenue_model else 0
+        expense_model = build_expense_model(expense_record, revenue_model.get("total_revenue", 0) if revenue_model else 0) if expense_record else None
 
-        expense_model = build_expense_model(expense_record, revenue_total) if expense_record else None
+        # Apply confirmed analysis period.
+        confirmed_months = st.session_state.selected_months
+        revenue_model = filter_revenue_model(revenue_model, confirmed_months) if revenue_model else None
+        expense_model = filter_expense_model(expense_model, confirmed_months) if expense_model else None
+
+        revenue_total = revenue_model.get("total_revenue", 0) if revenue_model else 0
+        if expense_model and revenue_total:
+            expense_model["expense_ratio"] = expense_model.get("total_expenses", 0) / revenue_total
+
         tb_model = parse_trial_balance(tb_record) if tb_record else None
         financial_model = build_basic_financial_model(revenue_model, expense_model)
         validation_checks = validate_project(updated_rows, revenue_model, expense_model, tb_model)
+
+        pnl_model = build_pnl(revenue_model, expense_model)
+        monthly_pnl_model = monthly_pnl(revenue_model, expense_model)
+        ratio_model = build_ratios(pnl_model, expense_model)
+        breakeven_model = build_breakeven(pnl_model, expense_model)
+        forecast_model, forecast_note = build_forecast(monthly_pnl_model)
+        glossary_model = build_glossary()
 
         st.session_state.models = {
             "revenue_model": revenue_model,
@@ -178,6 +230,14 @@ if st.session_state.files:
             "tb_model": tb_model,
             "financial_model": financial_model,
             "validation_checks": validation_checks,
+            "pnl_model": pnl_model,
+            "monthly_pnl_model": monthly_pnl_model,
+            "ratio_model": ratio_model,
+            "breakeven_model": breakeven_model,
+            "forecast_model": forecast_model,
+            "forecast_note": forecast_note,
+            "glossary_model": glossary_model,
+            "confirmed_months": confirmed_months,
         }
         st.success("تم بناء النموذج المالي الأولي.")
 
@@ -187,6 +247,12 @@ if st.session_state.models:
     expense_model = models.get("expense_model")
     financial_model = models.get("financial_model")
     validation_checks = models.get("validation_checks")
+    pnl_model = models.get("pnl_model", {})
+    monthly_pnl_model = models.get("monthly_pnl_model", pd.DataFrame())
+    ratio_model = models.get("ratio_model", {})
+    breakeven_model = models.get("breakeven_model", {})
+    forecast_model = models.get("forecast_model", pd.DataFrame())
+    glossary_model = models.get("glossary_model", pd.DataFrame())
 
     section_header("3. فحص جودة البيانات")
 
@@ -197,13 +263,23 @@ if st.session_state.models:
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        kpi_card("Revenue / الإيرادات", f"{financial_model.get('revenue', 0):,.0f}", "من مصدر الإيرادات الرسمي فقط")
+        kpi_card("Revenue / الإيرادات", f"{pnl_model.get('revenue', 0):,.0f}", "من مصدر الإيرادات الرسمي فقط")
     with c2:
-        kpi_card("Expenses / المصاريف", f"{financial_model.get('expenses', 0):,.0f}", "من مصدر المصاريف الرسمي")
+        kpi_card("EBITDA / الربح التشغيلي", f"{pnl_model.get('ebitda', 0):,.0f}", "بعد فصل COGS وOpex مبدئياً")
     with c3:
-        kpi_card("Preliminary Profit / ربح أولي", f"{financial_model.get('gross_profit_preliminary', 0):,.0f}", "قبل فصل COGS وOpex")
+        kpi_card("Net Profit / صافي الربح", f"{pnl_model.get('net_profit', 0):,.0f}", "حسب التصنيف الحالي")
     with c4:
-        kpi_card("Preliminary Margin / هامش أولي", f"{financial_model.get('net_margin_preliminary', 0):.1%}", "مؤشر أولي فقط")
+        kpi_card("Health Score / الصحة المالية", f"{ratio_model.get('financial_health_score', 0):.0f}/100", ratio_model.get("biggest_risk", ""))
+
+    c5, c6, c7, c8 = st.columns(4)
+    with c5:
+        kpi_card("Expenses / المصاريف", f"{pnl_model.get('total_expenses', 0):,.0f}", "من مصدر المصاريف الرسمي")
+    with c6:
+        kpi_card("Break-even / إيراد التعادل", f"{breakeven_model.get('breakeven_revenue', 0):,.0f}", "تقدير أولي")
+    with c7:
+        kpi_card("Break-even Gap / فجوة التعادل", f"{breakeven_model.get('breakeven_gap', 0):,.0f}", "الإيرادات الحالية - التعادل")
+    with c8:
+        kpi_card("Next Decision / القرار القادم", "", ratio_model.get("next_decision", ""))
 
     active_tabs = tabs_for_mode(analysis_mode)
     section_header("5. الصفحات المفعلة حسب نوع التحليل")
@@ -220,6 +296,26 @@ if st.session_state.models:
                     line_chart(revenue_model["monthly_revenue"], "month", "revenue", "Revenue Trend")
                 else:
                     st.info("لا توجد بيانات إيرادات كافية.")
+
+            elif tab_name == "P&L":
+                st.subheader("قائمة الدخل")
+                st.info(pnl_model.get("note", ""))
+                st.dataframe(pnl_model.get("pnl", pd.DataFrame()), use_container_width=True)
+                if not monthly_pnl_model.empty:
+                    st.markdown("#### الربحية الشهرية")
+                    st.dataframe(monthly_pnl_model, use_container_width=True)
+                    line_chart(monthly_pnl_model, "month", "preliminary_profit", "Monthly Profitability")
+
+            elif tab_name in ["Ratios"]:
+                st.subheader("تحليل النسب")
+                ratios_df = ratio_model.get("ratios", pd.DataFrame())
+                if not ratios_df.empty:
+                    show = ratios_df.copy()
+                    show["Value"] = show["Value"].apply(lambda x: f"{x:.1%}")
+                    st.dataframe(show, use_container_width=True)
+                message_box(ratio_model.get("biggest_risk", ""), "warning")
+                message_box(ratio_model.get("next_decision", ""), "info")
+
             elif tab_name in ["Expenses", "Top Expenses", "Cost Structure"]:
                 st.subheader("تحليل المصاريف")
                 if expense_model:
@@ -236,6 +332,25 @@ if st.session_state.models:
                     st.dataframe(expense_model.get("top_expenses", pd.DataFrame()), use_container_width=True)
                 else:
                     st.info("لم يتم اختيار أو قراءة مصدر مصاريف رسمي.")
+
+            elif tab_name == "Break-even":
+                st.subheader("تحليل نقطة التعادل")
+                st.info(breakeven_model.get("note", ""))
+                st.dataframe(breakeven_model.get("summary", pd.DataFrame()), use_container_width=True)
+                st.markdown("#### السيناريوهات")
+                st.dataframe(breakeven_model.get("scenarios", pd.DataFrame()), use_container_width=True)
+
+            elif tab_name == "Forecast":
+                st.subheader("التوقعات والسيناريوهات")
+                st.info(models.get("forecast_note", ""))
+                st.dataframe(forecast_model, use_container_width=True)
+                if not forecast_model.empty:
+                    line_chart(forecast_model, "month", "forecast_profit", "Forecast Profit by Scenario")
+
+            elif tab_name == "Glossary":
+                st.subheader("قاموس المصطلحات المالية")
+                st.dataframe(glossary_model, use_container_width=True)
+
             elif tab_name == "Export":
                 st.subheader("تصدير Excel CFO Pack")
                 excel_bytes = build_excel_pack(
@@ -244,12 +359,16 @@ if st.session_state.models:
                     expense_model,
                     financial_model,
                     validation_checks,
+                    pnl_model=pnl_model,
+                    ratio_model=ratio_model,
+                    breakeven_model=breakeven_model,
+                    forecast_model=forecast_model,
+                    glossary_model=glossary_model,
+                    confirmed_months=models.get("confirmed_months", []),
                 )
                 st.download_button(
                     "تحميل Excel CFO Pack",
                     data=excel_bytes,
-                    file_name="wazen_cfo_pack_v7.xlsx",
+                    file_name="wazen_cfo_pack_v8.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
-            else:
-                st.info("هذه الصفحة ستكون ضمن Sprint 2 بعد تثبيت صحة القراءة والمنطق المالي.")
