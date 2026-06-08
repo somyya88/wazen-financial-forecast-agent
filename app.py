@@ -29,6 +29,13 @@ if "models" not in st.session_state:
 st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V7</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
+if st.button("تحديث / مسح النموذج السابق"):
+    st.session_state.files = []
+    st.session_state.file_rows = []
+    st.session_state.models = {}
+    st.rerun()
+
+
 with st.sidebar:
     st.markdown("## مراحل العمل")
     st.markdown("""
