@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V7
+# Wazen CFO Intelligence Agent V7.4
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
 

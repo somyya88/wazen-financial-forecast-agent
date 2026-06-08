@@ -29,19 +29,25 @@ def validate_project(file_rows: list[dict], revenue_model: dict | None = None, e
         for note in expense_model.get("notes", []):
             checks.append({"level": "info", "check": "Expense Notes", "message": note})
 
-    # Compare with TB if available
-    if tb_model and revenue_model and not tb_model.get("summary", pd.DataFrame()).empty:
-        summary = tb_model["summary"]
-        tb_revenue = summary.loc[summary["category"].isin(["Operating Revenue", "Other Revenue"]), "credit"].sum()
+    # Compare official revenue with reliable TB net sales metric, not raw credit totals.
+    if tb_model and revenue_model:
+        metrics = tb_model.get("metrics", {}) if isinstance(tb_model, dict) else {}
+        tb_revenue = metrics.get("net_sales")
         if tb_revenue:
             app_revenue = revenue_model.get("total_revenue", 0)
             diff = app_revenue - tb_revenue
             diff_pct = abs(diff) / tb_revenue if tb_revenue else 0
-            level = "success" if diff_pct <= 0.05 else "warning"
+            level = "success" if diff_pct <= 0.01 else ("info" if diff_pct <= 0.05 else "warning")
             checks.append({
                 "level": level,
                 "check": "Revenue vs Trial Balance",
                 "message": f"فرق الإيرادات بين المصدر الرسمي وميزان المراجعة: {diff:,.2f} ({diff_pct:.1%})."
+            })
+        else:
+            checks.append({
+                "level": "info",
+                "check": "Revenue vs Trial Balance",
+                "message": "لم يتم العثور على صف صافي المبيعات في ميزان المراجعة للمطابقة."
             })
 
     return checks

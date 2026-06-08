@@ -52,12 +52,15 @@ def _wide_expenses(df: pd.DataFrame, month_cols: list[str], revenue_total: float
         for col in month_cols:
             amount = float(to_number(pd.Series([row[col]])).iloc[0])
             if amount != 0:
+                # Keep the sign as-is.
+                # Negative expense lines usually represent reversals/credit notes
+                # and should reduce total expenses, not increase them.
                 long_rows.append({
                     "account_code": account_code,
                     "account_name": account_name,
                     "category": category,
                     "month": month_label(col),
-                    "amount": abs(amount),
+                    "amount": amount,
                 })
 
     long_df = pd.DataFrame(long_rows)
@@ -98,7 +101,8 @@ def _transaction_expenses(df: pd.DataFrame, revenue_total: float | None) -> dict
         }
 
     work = df.copy()
-    work["amount"] = abs(to_number(work[amount_col]))
+    # Keep the sign as-is. Negative lines reduce expenses.
+    work["amount"] = to_number(work[amount_col])
     work["account_name"] = work[account_col].astype(str) if account_col else "Unknown"
     work["category"] = work["account_name"].apply(classify_expense)
     if date_col:
