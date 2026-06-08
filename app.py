@@ -73,6 +73,7 @@ if uploaded_files and st.button("قراءة واكتشاف الملفات"):
                 "suggested_role": "ignored",
                 "selected_role": "ignored",
                 "read_error": data["error"],
+                "repaired": False,
             }
             st.session_state.files.append(record)
             errors.append(f"{data['file_name']}: {data['error']}")
@@ -91,6 +92,7 @@ if uploaded_files and st.button("قراءة واكتشاف الملفات"):
             "suggested_role": role,
             "selected_role": role,
             "read_error": None,
+            "repaired": data.get("repaired", False),
         }
         st.session_state.files.append(record)
 
@@ -123,6 +125,8 @@ if st.session_state.files:
                 "suggested_role": record["suggested_role"],
                 "selected_role": selected,
             })
+            if record.get("repaired"):
+                message_box("تم إصلاح ملف Excel تلقائياً بسبب مشكلة في ملف الأنماط Styles XML.", "info")
             if record.get("read_error"):
                 message_box(record["read_error"], "warning")
             with st.expander("معاينة أول 5 صفوف"):
