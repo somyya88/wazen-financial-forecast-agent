@@ -5,4 +5,4 @@ openpyxl
 plotly
 scikit-learn
 openai
-XlsxWriter
+xlsxwriter
