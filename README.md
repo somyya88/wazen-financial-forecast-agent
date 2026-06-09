@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V8.4
+# Wazen CFO Intelligence Agent V8.5
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
 
@@ -67,3 +67,11 @@ Only one file can be selected as the official revenue source.
 - Removes forced rerun from Expense Mapping save/reset actions.
 - Prevents Streamlit frontend "Bad message format / SessionInfo" errors while editing data_editor.
 - Clarifies that "إعادة توليد التصنيف المقترح" resets user edits intentionally.
+
+
+## V8.5 additions
+
+- Fixes Streamlit uploader state by using a dynamic uploader key.
+- Reset button now also resets the upload widget state.
+- Shows selected file names before processing.
+- Uses a newer Streamlit frontend range to reduce file uploader/data editor UI issues.

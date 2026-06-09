@@ -1,4 +1,4 @@
-APP_NAME = "Wazen CFO Intelligence Agent V7"
+APP_NAME = "Wazen CFO Intelligence Agent V8.5"
 
 WAZEN_BLUE = "#17479E"
 WAZEN_ORANGE = "#FAA61A"

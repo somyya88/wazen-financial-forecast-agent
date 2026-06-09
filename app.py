@@ -40,6 +40,8 @@ if "expense_mapping_saved" not in st.session_state:
     st.session_state.expense_mapping_saved = False
 if "mapping_signature" not in st.session_state:
     st.session_state.mapping_signature = None
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
 
 st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V7</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
@@ -52,6 +54,7 @@ if st.button("تحديث / مسح النموذج السابق"):
     st.session_state.expense_mapping = None
     st.session_state.expense_mapping_saved = False
     st.session_state.mapping_signature = None
+    st.session_state.uploader_key += 1
     st.rerun()
 
 
@@ -78,7 +81,15 @@ uploaded_files = st.file_uploader(
     "ارفع ملفات Excel المالية",
     type=["xlsx", "xls"],
     accept_multiple_files=True,
+    key=f"financial_files_uploader_{st.session_state.uploader_key}",
+    help="إذا لم تظهر الملفات بعد الاختيار، اضغطي زر تحديث / مسح النموذج السابق ثم جرّبي السحب والإفلات."
 )
+
+if not uploaded_files:
+    st.caption("ملاحظة: بعد اختيار الملفات يجب أن تظهر أسماؤها هنا. إذا لم تظهر، اضغطي زر تحديث / مسح النموذج السابق أعلى الصفحة.")
+
+if uploaded_files:
+    st.success(f"تم اختيار {len(uploaded_files)} ملف/ملفات: " + "، ".join([f.name for f in uploaded_files]))
 
 if uploaded_files and st.button("قراءة واكتشاف الملفات"):
     st.session_state.files = []
