@@ -217,14 +217,14 @@ if st.session_state.files:
             st.session_state.expense_mapping_saved = False
             st.session_state.mapping_signature = current_signature
 
-        st.info("عدّلي التصنيف ثم اضغطي **حفظ Expense Mapping**. لن يتم اعتماد أي تعديل في P&L أو Break-even قبل الحفظ.")
+        st.info("عدّلي التصنيف ثم اضغطي **حفظ Expense Mapping**. زر إعادة التوليد يمسح تعديلاتك ويعيد التصنيف الآلي فقط.")
 
         c_map1, c_map2, c_map3 = st.columns([1, 1, 2])
         with c_map1:
             if st.button("إعادة توليد التصنيف المقترح"):
                 st.session_state.expense_mapping = initial_mapping.copy()
                 st.session_state.expense_mapping_saved = False
-                st.rerun()
+                st.warning("تمت إعادة توليد التصنيف المقترح. راجعي الجدول ثم اضغطي حفظ.")
         with c_map2:
             if st.session_state.expense_mapping_saved:
                 st.success("تم حفظ التصنيف")
@@ -253,7 +253,6 @@ if st.session_state.files:
             st.session_state.expense_mapping = edited_mapping.copy()
             st.session_state.expense_mapping_saved = True
             st.success("تم حفظ Expense Mapping. يمكنك الآن بناء النموذج المالي.")
-            st.rerun()
 
         st.caption("ملاحظة: التعديلات داخل الجدول لا تدخل في الحسابات إلا بعد الضغط على زر الحفظ.")
     else:
