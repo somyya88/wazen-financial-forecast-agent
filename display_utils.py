@@ -63,6 +63,8 @@ def render_html_table(
     title: str | None = None,
     total_markers: list[str] | None = None,
     strong_markers: list[str] | None = None,
+    tooltip_map: dict[str, str] | None = None,
+    expense_drilldown: bool = False,
 ):
     if df is None or df.empty:
         st.info("لا توجد بيانات كافية للعرض.")
@@ -72,6 +74,7 @@ def render_html_table(
     percent_cols = percent_cols or []
     total_markers = total_markers or []
     strong_markers = strong_markers or []
+    tooltip_map = tooltip_map or {}
 
     show = df.copy()
     show = show[[c for c in columns if c in show.columns]]
@@ -89,6 +92,24 @@ def render_html_table(
         elif any(marker in joined for marker in total_markers):
             row_class = " total-row"
 
+        # Add visual separators for statement blocks.
+        if "Total Revenue" in joined or "إجمالي الإيرادات" in joined:
+            row_class += " revenue-total"
+        if "COGS" in joined or "تكلفة المبيعات" in joined:
+            row_class += " cogs-total"
+        if "Gross Profit" in joined or "مجمل الربح" in joined:
+            row_class += " gross-profit"
+        if "Operating Expenses" in joined or "المصروفات" in joined:
+            row_class += " opex-row"
+        if "Net Profit" in joined or "صافي الربح" in joined:
+            row_class += " net-profit-row"
+
+        row_tooltip = ""
+        for marker, tip in tooltip_map.items():
+            if marker in joined:
+                row_tooltip = f' title="{e(tip)}"'
+                break
+
         cells = []
         for c in show.columns:
             val = row.get(c, "")
@@ -99,8 +120,15 @@ def render_html_table(
             elif c in percent_cols:
                 cls = "num pct"
                 val = fmt_percent(val, 1)
-            cells.append(f'<td class="{cls}">{e(val)}</td>')
-        rows.append(f'<tr class="{row_class}">' + "".join(cells) + "</tr>")
+
+            # Make operating expense row visually actionable.
+            if expense_drilldown and c in ["العربي", "English"] and ("Operating Expenses" in joined or "المصروفات" in joined):
+                val = f'<a href="#expense-drilldown" class="table-link">{e(val)}</a>'
+                cells.append(f'<td class="{cls}"{row_tooltip}>{val}</td>')
+            else:
+                cells.append(f'<td class="{cls}"{row_tooltip}>{e(val)}</td>')
+
+        rows.append(f'<tr class="{row_class}"{row_tooltip}>' + "".join(cells) + "</tr>")
 
     html_table = f"""
     <div class="wazen-table-wrap">
@@ -127,6 +155,7 @@ def render_pnl_statement(pnl_df: pd.DataFrame):
         money_cols=["Amount"],
         total_markers=total_markers,
         strong_markers=strong_markers,
+        expense_drilldown=True,
     )
 
 def build_monthly_profitability_table(monthly_pnl_df: pd.DataFrame, pnl_model: dict) -> pd.DataFrame:
@@ -155,6 +184,7 @@ def build_monthly_profitability_table(monthly_pnl_df: pd.DataFrame, pnl_model: d
         "الإيراد": df["revenue"],
         "صافي المشتريات": df["net_purchases_allocated"],
         "هامش الربح التشغيلي": df["operating_profit_margin"],
+        "_operating_profit_amount": df["operating_profit_before_opex"],
         "المصاريف": df["expenses"],
         "صافي الربح": df["net_profit"],
         "نسبة صافي الربح": df["net_profit_margin"],
@@ -165,11 +195,18 @@ def render_monthly_profitability(monthly_pnl_df: pd.DataFrame, pnl_model: dict):
     if table.empty:
         st.info("لا توجد بيانات شهرية كافية.")
         return table
+    # Build row-level tooltips for operating profit margin.
+    tooltip_map = {}
+    for _, r in table.iterrows():
+        tip = f"الربح التشغيلي قبل المصاريف: {fmt_money(r.get('_operating_profit_amount', 0), 0)}"
+        tooltip_map[str(r.get('الشهر', ''))] = tip
+
     render_html_table(
         table,
         columns=["الشهر", "الإيراد", "صافي المشتريات", "هامش الربح التشغيلي", "المصاريف", "صافي الربح", "نسبة صافي الربح"],
         money_cols=["الإيراد", "صافي المشتريات", "المصاريف", "صافي الربح"],
         percent_cols=["هامش الربح التشغيلي", "نسبة صافي الربح"],
+        tooltip_map=tooltip_map,
     )
     st.caption("ملاحظة: صافي المشتريات الشهري موزع تحليلياً حسب وزن الإيراد الشهري لأن المصدر الرسمي للمشتريات هو ميزان المراجعة.")
     return table

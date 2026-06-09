@@ -228,5 +228,90 @@ def apply_theme():
         background: #FFFFFF;
         border-radius: 16px;
     }}
+
+    .wazen-table thead th {
+        text-align: right !important;
+        direction: rtl !important;
+    }
+
+    .wazen-table td {
+        text-align: right;
+    }
+
+    .wazen-table td.num {
+        text-align: left !important;
+    }
+
+    .wazen-table tr.revenue-total td,
+    .wazen-table tr.cogs-total td,
+    .wazen-table tr.gross-profit td,
+    .wazen-table tr.opex-row td {
+        background: #EAF2FF !important;
+        font-weight: 850;
+        color: #123A7A;
+    }
+
+    .wazen-table tr.revenue-total td {
+        border-top: 2px solid #B7CDF4;
+    }
+
+    .wazen-table tr.cogs-total td {
+        border-top: 2px solid #D9E5F8;
+    }
+
+    .wazen-table tr.gross-profit td {
+        border-top: 3px double #B7CDF4;
+        color: #17479E;
+    }
+
+    .wazen-table tr.opex-row td {
+        background: #FFF7E8 !important;
+        color: #7A4B00;
+        border-top: 2px solid #FFDFA3;
+    }
+
+    .wazen-table tr.net-profit-row td {
+        background: #EAF8F0 !important;
+        color: #065F46 !important;
+        font-weight: 900 !important;
+        border-top: 3px double #7BD6A5;
+        border-bottom: 2px solid #7BD6A5;
+        font-size: 17px;
+    }
+
+    .table-link {
+        color: inherit;
+        text-decoration: none;
+        border-bottom: 1px dashed currentColor;
+        cursor: pointer;
+    }
+
+    .table-link:hover {
+        color: #17479E;
+        background: rgba(23,71,158,0.06);
+    }
+
+    .expense-drilldown-card {
+        background: #FFFFFF;
+        border: 1px solid #E6EAF0;
+        border-radius: 18px;
+        padding: 20px 22px;
+        margin: 18px 0 26px;
+        box-shadow: 0 12px 28px rgba(17, 24, 39, 0.045);
+    }
+
+    .expense-drilldown-card h4 {
+        margin: 0 0 10px;
+        color: #17479E;
+        font-weight: 800;
+    }
+
+    .tooltip-note {
+        color: #667085;
+        font-size: 14px;
+        margin-top: -6px;
+        margin-bottom: 12px;
+    }
+
     </style>
     """, unsafe_allow_html=True)

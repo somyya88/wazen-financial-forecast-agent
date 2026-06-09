@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V8.7
+# Wazen CFO Intelligence Agent V8.8
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
 
@@ -102,3 +102,12 @@ Only one file can be selected as the official revenue source.
   month, revenue, net purchases, operating profit margin, expenses, net profit, net profit margin.
 - Fixed revenue trend chart with robust numeric conversion, month sorting, and Wazen colors.
 - Standardized number and percentage formatting across analytical tables.
+
+
+## V8.8 additions
+
+- Aligns all table headers to the right for RTL consistency.
+- Improves income statement visual hierarchy with stronger statement-style subtotal sections.
+- Adds an Operating Expenses drill-down expander directly under P&L.
+- Makes Operating Expenses row visually clickable with an anchor to the drill-down section.
+- Adds hover tooltips on monthly profitability rows showing operating profit amount.

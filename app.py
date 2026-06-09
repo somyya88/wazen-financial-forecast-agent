@@ -44,7 +44,7 @@ if "mapping_signature" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V8.7</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V8.8</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.button("تحديث / مسح النموذج السابق"):
@@ -391,6 +391,26 @@ if st.session_state.models:
                 st.subheader("قائمة الدخل")
                 st.info(pnl_model.get("note", ""))
                 render_pnl_statement(pnl_model.get("pnl", pd.DataFrame()))
+
+                st.markdown('<a id="expense-drilldown"></a>', unsafe_allow_html=True)
+                with st.expander("تفاصيل المصاريف التشغيلية من ملف المصروفات", expanded=False):
+                    st.markdown('<div class="tooltip-note">هذا التفصيل تحليلي، أما رقم المصروفات الرسمي في قائمة الدخل فمن ميزان المراجعة.</div>', unsafe_allow_html=True)
+                    if expense_model and not expense_model.get("by_category", pd.DataFrame()).empty:
+                        exp_cat = expense_model.get("by_category", pd.DataFrame()).copy()
+                        render_simple_financial_table(
+                            exp_cat.rename(columns={"category": "التصنيف", "amount": "المبلغ"}),
+                            columns=["التصنيف", "المبلغ"],
+                            money_cols=["المبلغ"],
+                        )
+                    if expense_model and not expense_model.get("top_expenses", pd.DataFrame()).empty:
+                        st.markdown("##### أكبر بنود المصاريف")
+                        top_exp = expense_model.get("top_expenses", pd.DataFrame()).copy()
+                        render_simple_financial_table(
+                            top_exp.rename(columns={"account_name": "الحساب", "category": "التصنيف", "cost_behavior": "نوع التكلفة", "amount": "المبلغ"}),
+                            columns=["الحساب", "التصنيف", "نوع التكلفة", "المبلغ"],
+                            money_cols=["المبلغ"],
+                        )
+
                 if not monthly_pnl_model.empty:
                     st.markdown("#### الربحية الشهرية")
                     monthly_profitability_table = render_monthly_profitability(monthly_pnl_model, pnl_model)
