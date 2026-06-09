@@ -2,24 +2,42 @@ import pandas as pd
 from utils import find_column, to_number, normalize_text
 
 ACCOUNT_RULES = {
-    "Assets": ["نقد", "بنك", "صندوق", "ذمم مدينة", "عملاء", "اصل", "أصل", "assets", "cash", "bank", "receivable"],
+    "Assets": ["نقد", "بنك", "صندوق", "ذمم مدينة", "عملاء", "اصل", "أصل", "assets", "cash", "bank", "receivable", "مخزون"],
     "Liabilities": ["ذمم دائنة", "مورد", "قرض", "التزام", "مقبوض مقدما", "مقدمة", "liabilities", "payable", "loan", "unearned"],
     "Equity": ["رأس المال", "راس المال", "حقوق", "ارباح مبقاة", "equity", "capital"],
-    "Operating Revenue": ["صافي المبيعات", "المبيعات ( رئيسي )", "مبيعات اشتراك", "مبيعات تجديدات", "مبيعات قطاع"],
-    "Sales Returns": ["مردودات المبيعات", "مردودات مبيعات"],
-    "Other Revenue": ["ايرادات اخرى", "إيرادات أخرى", "ايرادات أخرى", "other income"],
-    "COGS": ["تكلفة", "مشتريات", "cogs", "cost of sales"],
-    "Operating Expenses": ["مصروف", "expenses", "opex"],
+    "Net Purchases": ["صافي المشتريات"],
+    "Purchases": ["المشتريات"],
+    "Purchase Returns": ["مردودات المشتريات"],
+    "Purchase Discounts": ["خصم مكتسب"],
+    "Net Sales": ["صافي المبيعات"],
+    "Sales": ["المبيعات"],
+    "Sales Returns": ["مردودات المبيعات"],
+    "Sales Discounts": ["خصم ممنوح"],
+    "Other Revenue": ["ايرادات", "إيرادات", "ايراد", "إيراد", "other income"],
+    "Operating Expenses": ["مصروف", "مصاريف", "expenses", "opex"],
     "Depreciation": ["اهلاك", "إهلاك", "depreciation"],
-    "Finance Costs": ["فوائد", "تمويل", "interest", "finance"],
+    "Finance Costs": ["فوائد", "تمويل", "رسوم بنكية", "interest", "finance"],
     "Tax/Zakat": ["زكاة", "ضريبة", "tax", "zakat"],
 }
+
+def _code_str(value) -> str:
+    if pd.isna(value):
+        return ""
+    try:
+        # 40101.0 -> 40101
+        return str(int(float(value)))
+    except Exception:
+        return str(value).strip().replace(".0", "")
+
+def _is_parent_code(code: str, all_codes: list[str]) -> bool:
+    if not code:
+        return False
+    return any(other != code and other.startswith(code) and len(other) > len(code) for other in all_codes)
 
 def classify_account(name: str) -> str:
     text = normalize_text(name)
 
-    # Avoid treating liabilities that contain the word revenue/sales as revenue.
-    if any(k in text for k in ["مقبوض مقدما", "مستحقة", "ضريبة القيمة المضافة للمبيعات", "ايجار مقرات"]):
+    if any(k in text for k in ["مقبوض مقدما", "مستحقة", "ضريبة القيمة المضافة للمبيعات"]):
         return "Liabilities"
 
     for category, keys in ACCOUNT_RULES.items():
@@ -27,102 +45,187 @@ def classify_account(name: str) -> str:
             return category
     return "Unclassified"
 
-def _find_net_sales(work: pd.DataFrame) -> float | None:
-    """
-    Best practice for this TB format:
-    use the explicit row named 'صافي المبيعات' because it already nets sales, returns,
-    discounts, or related debit movements.
-    """
-    if work.empty:
-        return None
+def _amount_from_row(row, debit_field="debit", credit_field="credit", natural="debit") -> float:
+    debit = float(row.get(debit_field, 0) or 0)
+    credit = float(row.get(credit_field, 0) or 0)
+    if natural == "credit":
+        return credit - debit
+    return debit - credit
 
-    exact = work["account_name"].astype(str).str.strip().eq("صافي المبيعات")
-    if exact.any():
-        row = work.loc[exact].iloc[0]
-        if abs(float(row.get("net", 0))) > 0:
-            return abs(float(row["net"]))
-        credit = float(row.get("credit", 0))
-        debit = float(row.get("debit", 0))
-        return abs(credit - debit)
-
-    # Fallback: use code 4 main revenue only when explicit net sales row is absent.
-    code = work["account_code"].astype(str).str.strip()
-    revenue_rows = work[code.str.startswith("401")]
-    returns_rows = work[code.str.startswith("402")]
-    if not revenue_rows.empty:
-        sales = revenue_rows["credit"].sum() - revenue_rows["debit"].sum()
-        returns = returns_rows["debit"].sum() - returns_rows["credit"].sum() if not returns_rows.empty else 0
-        return max(0.0, float(sales - returns))
-
+def _explicit_amount(work: pd.DataFrame, exact_names: list[str], natural="debit") -> float | None:
+    names = work["account_name"].astype(str).str.strip()
+    for exact in exact_names:
+        mask = names.eq(exact)
+        if mask.any():
+            row = work.loc[mask].iloc[0]
+            val = _amount_from_row(row, natural=natural)
+            return abs(float(val))
     return None
 
+def _leaf_sum_by_code(work: pd.DataFrame, prefixes: list[str], natural="debit", exclude_names: list[str] | None = None) -> float:
+    exclude_names = exclude_names or []
+    all_codes = work["account_code_norm"].tolist()
+    mask = pd.Series(False, index=work.index)
+    for prefix in prefixes:
+        mask = mask | work["account_code_norm"].str.startswith(prefix, na=False)
 
-def _find_net_purchases(work: pd.DataFrame) -> float | None:
+    subset = work[mask].copy()
+    if subset.empty:
+        return 0.0
+
+    # Avoid double counting parent and child rows.
+    subset = subset[~subset["account_code_norm"].apply(lambda c: _is_parent_code(c, all_codes))]
+    if exclude_names:
+        ex = "|".join([re.escape(x) for x in exclude_names])
+        subset = subset[~subset["account_name"].astype(str).str.contains(ex, case=False, na=False)]
+
+    if natural == "credit":
+        return abs(float((subset["credit"] - subset["debit"]).sum()))
+    return abs(float((subset["debit"] - subset["credit"]).sum()))
+
+def _inventory_values(work: pd.DataFrame) -> tuple[float, float, str]:
     """
-    Extract net purchases from the trial balance when available.
-    In many accounting systems, purchases are part of the P&L but may not be present
-    in the separate expense report. We use the explicit row 'صافي المشتريات'
-    when present, otherwise fallback to account code starting with 3.
+    Returns opening_inventory, ending_inventory, note.
+    It searches inventory accounts if they exist.
     """
+    inv_mask = work["account_name"].astype(str).str.contains("مخزون|بضاعة", case=False, na=False)
+    inv = work[inv_mask].copy()
+    if inv.empty:
+        return 0.0, 0.0, "لم يتم العثور على حسابات مخزون في ميزان المراجعة؛ تم اعتبار المخزون = صفر."
+
+    all_codes = work["account_code_norm"].tolist()
+    inv = inv[~inv["account_code_norm"].apply(lambda c: _is_parent_code(c, all_codes))]
+
+    opening = float((inv["begin_debit"] - inv["begin_credit"]).sum())
+    ending = float((inv["current_debit"] - inv["current_credit"]).sum())
+    return max(0.0, opening), max(0.0, ending), "تم استخراج مخزون أول وآخر المدة من حسابات المخزون في ميزان المراجعة."
+
+def build_income_statement_from_trial_balance(tb_model: dict) -> dict:
+    work = tb_model.get("tb", pd.DataFrame()) if tb_model else pd.DataFrame()
     if work.empty:
-        return None
+        return {"available": False, "pnl": pd.DataFrame(), "notes": ["ميزان المراجعة غير متاح أو غير قابل للقراءة."]}
 
-    exact = work["account_name"].astype(str).str.strip().eq("صافي المشتريات")
-    if exact.any():
-        row = work.loc[exact].iloc[0]
-        value = float(row.get("debit", 0)) - float(row.get("credit", 0))
-        if abs(value) > 0:
-            return abs(value)
-        net = float(row.get("net", 0))
-        return abs(net)
+    net_sales = _explicit_amount(work, ["صافي المبيعات"], natural="credit")
+    if net_sales is None:
+        # Fallback: net sales from class 4 excluding class 6.
+        sales = _leaf_sum_by_code(work, ["4"], natural="credit")
+        net_sales = sales
 
-    # Fallback to account class 3, excluding parent duplicates when possible.
-    code = work["account_code"].astype(str).str.strip()
-    purchase_rows = work[code.str.startswith("3")]
-    if not purchase_rows.empty:
-        # Prefer leaf accounts with longer codes, otherwise take top-level net.
-        leaf_rows = purchase_rows[purchase_rows["account_code"].astype(str).str.len() >= 5]
-        target = leaf_rows if not leaf_rows.empty else purchase_rows
-        val = float((target["debit"] - target["credit"]).sum())
-        return abs(val) if abs(val) > 0 else None
+    other_revenue = _explicit_amount(work, ["الإيرادات"], natural="credit")
+    if other_revenue is None:
+        other_revenue = _leaf_sum_by_code(work, ["6"], natural="credit")
 
-    return None
+    net_purchases = _explicit_amount(work, ["صافي المشتريات"], natural="debit")
+    if net_purchases is None:
+        purchases = _leaf_sum_by_code(work, ["301"], natural="debit")
+        returns = _leaf_sum_by_code(work, ["302"], natural="credit")
+        discounts = _leaf_sum_by_code(work, ["303"], natural="credit")
+        net_purchases = max(0.0, purchases - returns - discounts)
+
+    opening_inventory, ending_inventory, inv_note = _inventory_values(work)
+    cogs = opening_inventory + net_purchases - ending_inventory
+    cogs = max(0.0, cogs)
+
+    operating_expenses = _explicit_amount(work, ["المصروفات"], natural="debit")
+    if operating_expenses is None:
+        operating_expenses = _leaf_sum_by_code(work, ["5"], natural="debit")
+
+    total_revenue = net_sales + other_revenue
+    gross_profit = total_revenue - cogs
+    ebitda = gross_profit - operating_expenses
+    net_profit = ebitda
+
+    pnl = pd.DataFrame([
+        ["Net Sales", "صافي المبيعات", net_sales],
+        ["Other Revenue", "إيرادات أخرى", other_revenue],
+        ["Total Revenue", "إجمالي الإيرادات", total_revenue],
+        ["Opening Inventory", "مخزون أول المدة", opening_inventory],
+        ["Net Purchases", "صافي المشتريات", net_purchases],
+        ["Ending Inventory", "مخزون آخر المدة", ending_inventory],
+        ["COGS", "تكلفة المبيعات", cogs],
+        ["Gross Profit", "مجمل الربح", gross_profit],
+        ["Operating Expenses", "المصروفات", operating_expenses],
+        ["Net Profit", "صافي الربح", net_profit],
+    ], columns=["English", "العربي", "Amount"])
+
+    return {
+        "available": True,
+        "pnl": pnl,
+        "net_sales": net_sales,
+        "other_revenue": other_revenue,
+        "total_revenue": total_revenue,
+        "opening_inventory": opening_inventory,
+        "net_purchases": net_purchases,
+        "ending_inventory": ending_inventory,
+        "cogs": cogs,
+        "gross_profit": gross_profit,
+        "operating_expenses": operating_expenses,
+        "ebitda": ebitda,
+        "net_profit": net_profit,
+        "notes": [
+            "تم بناء قائمة الدخل من ميزان المراجعة كمصدر أساسي.",
+            inv_note,
+            "ملفات المبيعات والمصاريف الشهرية تستخدم للتحليل والتوزيع الشهري، وليست المصدر الأساسي لصافي الربح."
+        ]
+    }
 
 def parse_trial_balance(file_record: dict) -> dict:
     df = file_record["primary_df"].copy()
     account_col = find_column(df, ["اسم الحساب", "account name", "account", "الحساب", "البيان"])
     code_col = find_column(df, ["رقم الحساب", "account code", "code"])
-    debit_col = find_column(df, ["مدين", "debit", "الحركة المدينة", "closing debit", "الرصيد الحالي(مدين)"])
-    credit_col = find_column(df, ["دائن", "دائن ", "credit", "الحركة الدائنة", "closing credit", "الرصيد الحالي(دائن )"])
+    begin_debit_col = find_column(df, ["بداية المدة(مدين)", "opening debit", "begin debit"])
+    begin_credit_col = find_column(df, ["بداية المدة(دائن", "opening credit", "begin credit"])
+    debit_col = find_column(df, ["مدين", "debit", "الحركة المدينة"])
+    credit_col = find_column(df, ["دائن", "دائن ", "credit", "الحركة الدائنة"])
+    current_debit_col = find_column(df, ["الرصيد الحالي(مدين)", "closing debit", "current debit"])
+    current_credit_col = find_column(df, ["الرصيد الحالي(دائن", "closing credit", "current credit"])
 
     if not account_col:
-        return {"tb": pd.DataFrame(), "summary": pd.DataFrame(), "metrics": {}, "notes": ["لم يتم تحديد عمود اسم الحساب في ميزان المراجعة."]}
+        return {
+            "tb": pd.DataFrame(),
+            "summary": pd.DataFrame(),
+            "metrics": {},
+            "income_statement": {"available": False, "pnl": pd.DataFrame()},
+            "notes": ["لم يتم تحديد عمود اسم الحساب في ميزان المراجعة."]
+        }
 
     work = df.copy()
     work["account_name"] = work[account_col].astype(str)
     work["account_code"] = work[code_col].astype(str) if code_col else ""
+    work["account_code_norm"] = work[code_col].apply(_code_str) if code_col else ""
     work["category"] = work["account_name"].apply(classify_account)
+
+    work["begin_debit"] = to_number(work[begin_debit_col]) if begin_debit_col else 0
+    work["begin_credit"] = to_number(work[begin_credit_col]) if begin_credit_col else 0
     work["debit"] = to_number(work[debit_col]) if debit_col else 0
     work["credit"] = to_number(work[credit_col]) if credit_col else 0
+    work["current_debit"] = to_number(work[current_debit_col]) if current_debit_col else 0
+    work["current_credit"] = to_number(work[current_credit_col]) if current_credit_col else 0
     work["net"] = work["credit"] - work["debit"]
 
     summary = work.groupby("category", as_index=False)[["debit", "credit", "net"]].sum()
 
-    net_sales = _find_net_sales(work)
-    net_purchases = _find_net_purchases(work)
+    tb_model = {"tb": work, "summary": summary, "metrics": {}, "notes": []}
+    income_statement = build_income_statement_from_trial_balance(tb_model)
+
     metrics = {
-        "net_sales": net_sales,
-        "net_sales_basis": "صافي المبيعات" if net_sales is not None else None,
-        "net_purchases": net_purchases,
-        "net_purchases_basis": "صافي المشتريات" if net_purchases is not None else None,
+        "net_sales": income_statement.get("net_sales"),
+        "other_revenue": income_statement.get("other_revenue"),
+        "total_revenue": income_statement.get("total_revenue"),
+        "net_purchases": income_statement.get("net_purchases"),
+        "opening_inventory": income_statement.get("opening_inventory"),
+        "ending_inventory": income_statement.get("ending_inventory"),
+        "cogs": income_statement.get("cogs"),
+        "operating_expenses": income_statement.get("operating_expenses"),
+        "net_profit": income_statement.get("net_profit"),
+        "net_sales_basis": "ميزان المراجعة / صافي المبيعات",
+        "net_purchases_basis": "ميزان المراجعة / صافي المشتريات",
     }
 
     return {
         "tb": work,
         "summary": summary,
         "metrics": metrics,
-        "notes": [
-            "تم استخراج صافي المبيعات من صف صافي المبيعات عند توفره بدلاً من جمع كل الحسابات التي تحتوي كلمة مبيعات.",
-            "تم فحص صافي المشتريات من ميزان المراجعة لاستخدامه كتكلفة إيراد داعمة إذا لم يظهر ضمن تقرير المصروفات."
-        ],
+        "income_statement": income_statement,
+        "notes": income_statement.get("notes", []),
     }

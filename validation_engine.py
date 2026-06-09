@@ -7,6 +7,10 @@ def validate_project(file_rows: list[dict], revenue_model: dict | None = None, e
     for warning in validate_source_roles(file_rows):
         checks.append({"level": "warning", "check": "Source Roles", "message": warning})
 
+    has_tb = any(r.get("selected_role") == "validation_source" and r.get("detected_type") == "trial_balance" for r in file_rows)
+    if has_tb:
+        checks.append({"level": "success", "check": "P&L Source", "message": "سيتم استخدام ميزان المراجعة كمصدر أساسي لإعداد قائمة الدخل، بينما تستخدم ملفات المبيعات والمصاريف للتحليل الشهري."})
+
     official_revenue = [r for r in file_rows if r.get("selected_role") == "official_revenue_source"]
     if len(official_revenue) == 1:
         checks.append({"level": "success", "check": "Revenue Source", "message": f"تم اعتماد ملف الإيرادات الرسمي: {official_revenue[0]['file_name']}"})
