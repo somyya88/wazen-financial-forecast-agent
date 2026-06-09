@@ -95,8 +95,10 @@ Only one file can be selected as the official revenue source.
 
 ## V8.7 additions
 
-- Premium Wazen UI refresh for KPI cards.
-- Tables display Arabic label on the right, English label beside it, and numeric values on the left.
-- Amounts are formatted with thousands separators.
-- Percentages are displayed with `%`.
-- Improved dashboard number wrapping and card hierarchy.
+- Redesigned KPI cards with Wazen visual identity.
+- Added professional HTML financial tables.
+- Redesigned P&L as a statement-style financial table with highlighted totals.
+- Rebuilt monthly profitability table:
+  month, revenue, net purchases, operating profit margin, expenses, net profit, net profit margin.
+- Fixed revenue trend chart with robust numeric conversion, month sorting, and Wazen colors.
+- Standardized number and percentage formatting across analytical tables.

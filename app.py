@@ -21,8 +21,8 @@ from analysis_router import tabs_for_mode
 from theme import apply_theme
 from cards import kpi_card, section_header, message_box
 from charts import line_chart, bar_chart, pie_chart
+from display_utils import render_pnl_statement, render_monthly_profitability, render_ratios_table, render_simple_financial_table, sort_month_df
 from excel_pack import build_excel_pack
-from display_utils import style_dataframe
 
 st.set_page_config(page_title=APP_NAME, page_icon="📊", layout="wide")
 apply_theme()
@@ -343,27 +343,27 @@ if st.session_state.models:
     for check in validation_checks:
         message_box(f"**{check['check']}** — {check['message']}", check["level"])
 
-    section_header("5. Dashboard")
+    section_header("5. Dashboard أولي")
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        kpi_card("Revenue / الإيرادات", f"{pnl_model.get('revenue', 0):,.0f}", "من مصدر الإيرادات الرسمي فقط")
+        kpi_card("الإيرادات / Revenue", f"{pnl_model.get('revenue', 0):,.0f}", "من ميزان المراجعة كمصدر رسمي")
     with c2:
-        kpi_card("EBITDA / الربح التشغيلي", f"{pnl_model.get('ebitda', 0):,.0f}", "بعد فصل COGS وOpex مبدئياً")
+        kpi_card("الربح التشغيلي / EBITDA", f"{pnl_model.get('ebitda', 0):,.0f}", "بعد تكلفة المبيعات والمصاريف")
     with c3:
-        kpi_card("Net Profit / صافي الربح", f"{pnl_model.get('net_profit', 0):,.0f}", "حسب التصنيف الحالي")
+        kpi_card("صافي الربح / Net Profit", f"{pnl_model.get('net_profit', 0):,.0f}", "حسب قائمة الدخل من الميزان")
     with c4:
-        kpi_card("Health Score / الصحة المالية", f"{ratio_model.get('financial_health_score', 0):.0f}/100", ratio_model.get("biggest_risk", ""))
+        kpi_card("الصحة المالية / Health Score", f"{ratio_model.get('financial_health_score', 0):.0f}/100", ratio_model.get("biggest_risk", ""))
 
     c5, c6, c7, c8 = st.columns(4)
     with c5:
-        kpi_card("Expenses / المصاريف", f"{pnl_model.get('total_expenses', 0):,.0f}", "من مصدر المصاريف الرسمي")
+        kpi_card("المصاريف / Expenses", f"{pnl_model.get('total_expenses', 0):,.0f}", "من ميزان المراجعة كمصدر رسمي")
     with c6:
-        kpi_card("Break-even / إيراد التعادل", f"{breakeven_model.get('breakeven_revenue', 0):,.0f}", "تقدير أولي")
+        kpi_card("إيراد التعادل / Break-even", f"{breakeven_model.get('breakeven_revenue', 0):,.0f}", "تقدير أولي")
     with c7:
-        kpi_card("Break-even Gap / فجوة التعادل", f"{breakeven_model.get('breakeven_gap', 0):,.0f}", "الإيرادات الحالية - التعادل")
+        kpi_card("فجوة التعادل / Break-even Gap", f"{breakeven_model.get('breakeven_gap', 0):,.0f}", "الإيرادات الحالية - التعادل")
     with c8:
-        kpi_card("Next Decision / القرار القادم", "", ratio_model.get("next_decision", ""))
+        kpi_card("القرار القادم / Next Decision", "", ratio_model.get("next_decision", ""))
 
     active_tabs = tabs_for_mode(analysis_mode)
     section_header("6. الصفحات المفعلة حسب نوع التحليل")
@@ -376,34 +376,41 @@ if st.session_state.models:
             if tab_name in ["Dashboard", "Revenue"]:
                 st.subheader("تحليل الإيرادات")
                 if revenue_model and not revenue_model.get("monthly_revenue", pd.DataFrame()).empty:
-                    st.dataframe(style_dataframe(revenue_model["monthly_revenue"]), use_container_width=True, hide_index=True)
-                    line_chart(revenue_model["monthly_revenue"], "month", "revenue", "Revenue Trend")
+                    revenue_monthly = sort_month_df(revenue_model["monthly_revenue"], "month").copy()
+                    revenue_monthly["revenue"] = pd.to_numeric(revenue_monthly["revenue"], errors="coerce").fillna(0)
+                    render_simple_financial_table(
+                        revenue_monthly.rename(columns={"month": "الشهر", "revenue": "الإيراد"}),
+                        columns=["الشهر", "الإيراد"],
+                        money_cols=["الإيراد"],
+                    )
+                    line_chart(revenue_monthly, "month", "revenue", "Revenue Trend")
                 else:
                     st.info("لا توجد بيانات إيرادات كافية.")
 
             elif tab_name == "P&L":
                 st.subheader("قائمة الدخل")
                 st.info(pnl_model.get("note", ""))
-                st.dataframe(style_dataframe(pnl_model.get("pnl", pd.DataFrame())), use_container_width=True, hide_index=True)
+                render_pnl_statement(pnl_model.get("pnl", pd.DataFrame()))
                 if not monthly_pnl_model.empty:
                     st.markdown("#### الربحية الشهرية")
-                    st.dataframe(style_dataframe(monthly_pnl_model), use_container_width=True, hide_index=True)
-                    line_chart(monthly_pnl_model, "month", "preliminary_profit", "Monthly Profitability")
+                    monthly_profitability_table = render_monthly_profitability(monthly_pnl_model, pnl_model)
+                    if monthly_profitability_table is not None and not monthly_profitability_table.empty:
+                        chart_df = monthly_profitability_table[["الشهر", "صافي الربح"]].copy()
+                        chart_df = chart_df.rename(columns={"الشهر": "month", "صافي الربح": "net_profit"})
+                        line_chart(chart_df, "month", "net_profit", "Monthly Net Profit")
 
             elif tab_name in ["Ratios"]:
                 st.subheader("تحليل النسب")
                 ratios_df = ratio_model.get("ratios", pd.DataFrame())
                 if not ratios_df.empty:
-                    show = ratios_df.copy()
-                    show["Value"] = show["Value"].apply(lambda x: f"{x:.1%}")
-                    st.dataframe(style_dataframe(show), use_container_width=True, hide_index=True)
+                    render_ratios_table(ratios_df)
                 message_box(ratio_model.get("biggest_risk", ""), "warning")
                 message_box(ratio_model.get("next_decision", ""), "info")
 
             elif tab_name == "Expense Mapping":
                 st.subheader("Expense Mapping المعتمد")
                 if expense_mapping_model is not None and not expense_mapping_model.empty:
-                    st.dataframe(style_dataframe(expense_mapping_model), use_container_width=True, hide_index=True)
+                    st.dataframe(expense_mapping_model, use_container_width=True)
                 else:
                     st.info("لا توجد خريطة تصنيف معتمدة.")
 
@@ -413,34 +420,78 @@ if st.session_state.models:
                     c1, c2 = st.columns(2)
                     with c1:
                         st.markdown("#### المصاريف الشهرية")
-                        st.dataframe(style_dataframe(expense_model.get("monthly_expenses", pd.DataFrame())), use_container_width=True, hide_index=True)
-                        bar_chart(expense_model.get("monthly_expenses", pd.DataFrame()), "month", "expenses", "Monthly Expenses")
+                        monthly_exp = sort_month_df(expense_model.get("monthly_expenses", pd.DataFrame()), "month").copy()
+                        render_simple_financial_table(
+                            monthly_exp.rename(columns={"month": "الشهر", "expenses": "المصاريف"}),
+                            columns=["الشهر", "المصاريف"],
+                            money_cols=["المصاريف"],
+                        )
+                        bar_chart(monthly_exp, "month", "expenses", "Monthly Expenses")
                     with c2:
                         st.markdown("#### هيكل المصاريف")
-                        st.dataframe(style_dataframe(expense_model.get("by_category", pd.DataFrame())), use_container_width=True, hide_index=True)
+                        cat_df = expense_model.get("by_category", pd.DataFrame()).copy()
+                        render_simple_financial_table(
+                            cat_df.rename(columns={"category": "التصنيف", "amount": "المبلغ"}),
+                            columns=["التصنيف", "المبلغ"],
+                            money_cols=["المبلغ"],
+                        )
                         pie_chart(expense_model.get("by_category", pd.DataFrame()), "category", "amount", "Expense Structure")
                     st.markdown("#### أكبر 10 مصاريف")
-                    st.dataframe(style_dataframe(expense_model.get("top_expenses", pd.DataFrame())), use_container_width=True, hide_index=True)
+                    top_df = expense_model.get("top_expenses", pd.DataFrame()).copy()
+                    render_simple_financial_table(
+                        top_df.rename(columns={"account_name": "الحساب", "category": "التصنيف", "cost_behavior": "نوع التكلفة", "amount": "المبلغ"}),
+                        columns=["الحساب", "التصنيف", "نوع التكلفة", "المبلغ"],
+                        money_cols=["المبلغ"],
+                    )
                 else:
                     st.info("لم يتم اختيار أو قراءة مصدر مصاريف رسمي.")
 
             elif tab_name == "Break-even":
                 st.subheader("تحليل نقطة التعادل")
                 st.info(breakeven_model.get("note", ""))
-                st.dataframe(style_dataframe(breakeven_model.get("summary", pd.DataFrame())), use_container_width=True, hide_index=True)
+                be_summary = breakeven_model.get("summary", pd.DataFrame()).copy()
+                render_simple_financial_table(
+                    be_summary,
+                    columns=["العربي", "English", "Value"],
+                    money_cols=["Value"],
+                )
                 st.markdown("#### السيناريوهات")
-                st.dataframe(style_dataframe(breakeven_model.get("scenarios", pd.DataFrame())), use_container_width=True, hide_index=True)
+                scenarios_df = breakeven_model.get("scenarios", pd.DataFrame()).copy()
+                render_simple_financial_table(
+                    scenarios_df,
+                    columns=["العربي", "Scenario", "Fixed Costs", "Contribution Margin", "Break-even Revenue"],
+                    money_cols=["Fixed Costs", "Break-even Revenue"],
+                    percent_cols=["Contribution Margin"],
+                )
 
             elif tab_name == "Forecast":
                 st.subheader("التوقعات والسيناريوهات")
                 st.info(models.get("forecast_note", ""))
-                st.dataframe(style_dataframe(forecast_model), use_container_width=True, hide_index=True)
                 if not forecast_model.empty:
+                    forecast_show = forecast_model.copy()
+                    render_simple_financial_table(
+                        forecast_show.rename(columns={
+                            "العربي": "السيناريو",
+                            "month": "الشهر",
+                            "forecast_revenue": "الإيراد المتوقع",
+                            "forecast_expenses": "المصاريف المتوقعة",
+                            "forecast_profit": "الربح المتوقع",
+                            "forecast_margin": "هامش الربح المتوقع",
+                        }),
+                        columns=["السيناريو", "Scenario", "الشهر", "الإيراد المتوقع", "المصاريف المتوقعة", "الربح المتوقع", "هامش الربح المتوقع"],
+                        money_cols=["الإيراد المتوقع", "المصاريف المتوقعة", "الربح المتوقع"],
+                        percent_cols=["هامش الربح المتوقع"],
+                    )
                     line_chart(forecast_model, "month", "forecast_profit", "Forecast Profit by Scenario")
+                else:
+                    st.info("لا توجد بيانات توقع كافية.")
 
             elif tab_name == "Glossary":
                 st.subheader("قاموس المصطلحات المالية")
-                st.dataframe(style_dataframe(glossary_model), use_container_width=True, hide_index=True)
+                render_simple_financial_table(
+                    glossary_model,
+                    columns=["العربي", "English", "المعنى المبسط", "المعادلة", "لماذا يهم؟"],
+                )
 
             elif tab_name == "Export":
                 st.subheader("تصدير Excel CFO Pack")

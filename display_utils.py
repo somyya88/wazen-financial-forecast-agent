@@ -1,102 +1,190 @@
+import html
 import pandas as pd
+import streamlit as st
 
-PERCENT_KEYWORDS = ["margin", "ratio", "score", "هامش", "نسبة"]
+WAZEN_BLUE = "#17479E"
+WAZEN_ORANGE = "#FAA61A"
+WAZEN_BG = "#F7F9FC"
+WAZEN_BORDER = "#E6EAF0"
+TEXT_DARK = "#1F2D3D"
 
-def fmt_number(value, decimals=0):
-    try:
-        if pd.isna(value):
-            return ""
-        return f"{float(value):,.{decimals}f}"
-    except Exception:
-        return value
+MONTH_ORDER = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+MONTH_AR = {
+    "Jan": "يناير",
+    "Feb": "فبراير",
+    "Mar": "مارس",
+    "Apr": "أبريل",
+    "May": "مايو",
+    "Jun": "يونيو",
+    "Jul": "يوليو",
+    "Aug": "أغسطس",
+    "Sep": "سبتمبر",
+    "Oct": "أكتوبر",
+    "Nov": "نوفمبر",
+    "Dec": "ديسمبر",
+}
 
-def fmt_amount(value):
-    try:
-        if pd.isna(value):
-            return ""
-        val = float(value)
-        return f"{val:,.0f}" if abs(val) >= 1000 else f"{val:,.2f}".rstrip("0").rstrip(".")
-    except Exception:
-        return value
-
-def fmt_percent(value):
-    try:
-        if pd.isna(value):
-            return ""
-        return f"{float(value):.1%}"
-    except Exception:
-        text = str(value)
-        return text if "%" in text else value
-
-def _is_percent_row(row):
-    text = " ".join(str(v).lower() for v in row.values)
-    return any(k.lower() in text for k in PERCENT_KEYWORDS)
-
-def format_financial_table(df: pd.DataFrame) -> pd.DataFrame:
-    """Display order: Arabic on the right, English next to it, numbers on the left in RTL Streamlit."""
-    if df is None or df.empty:
-        return pd.DataFrame()
+def sort_month_df(df: pd.DataFrame, month_col: str = "month") -> pd.DataFrame:
+    if df is None or df.empty or month_col not in df.columns:
+        return df if df is not None else pd.DataFrame()
     out = df.copy()
+    out["_month_order"] = out[month_col].map(lambda x: MONTH_ORDER.index(str(x)) if str(x) in MONTH_ORDER else 99)
+    out = out.sort_values("_month_order").drop(columns=["_month_order"])
+    return out
 
-    # Format numeric columns by context.
-    for col in out.columns:
-        if pd.api.types.is_numeric_dtype(out[col]):
-            if "margin" in str(col).lower() or "ratio" in str(col).lower() or str(col).lower() in ["value"]:
-                # Value can be amount in some tables, so handle row by row below for Value.
-                pass
+def fmt_money(value, decimals: int = 0) -> str:
+    try:
+        v = float(value)
+    except Exception:
+        return "—"
+    if abs(v) < 0.000001:
+        v = 0
+    if v < 0:
+        return f"({abs(v):,.{decimals}f})"
+    return f"{v:,.{decimals}f}"
 
-    if "Value" in out.columns:
-        out["Value"] = out.apply(lambda r: fmt_percent(r["Value"]) if _is_percent_row(r) else fmt_amount(r["Value"]), axis=1)
-    if "Amount" in out.columns:
-        out["Amount"] = out["Amount"].apply(fmt_amount)
+def fmt_percent(value, decimals: int = 1) -> str:
+    try:
+        v = float(value)
+    except Exception:
+        return "—"
+    if abs(v) <= 1.5:
+        v *= 100
+    return f"{v:.{decimals}f}%"
 
-    # Common monthly/profit columns.
-    for col in ["revenue", "expenses", "preliminary_profit", "forecast_revenue", "forecast_expenses", "forecast_profit", "amount", "Break-even Revenue", "Fixed Costs", "Contribution Margin"]:
-        if col in out.columns:
-            if "margin" in col.lower() or col == "Contribution Margin":
-                out[col] = out[col].apply(fmt_percent)
-            else:
-                out[col] = out[col].apply(fmt_amount)
-    for col in ["margin", "forecast_margin"]:
-        if col in out.columns:
-            out[col] = out[col].apply(fmt_percent)
+def e(value) -> str:
+    return html.escape("" if value is None else str(value))
 
-    # Rename analytical columns.
-    rename_map = {
-        "month": "الشهر",
-        "revenue": "الإيرادات",
-        "expenses": "المصاريف",
-        "preliminary_profit": "الربح الأولي",
-        "margin": "الهامش",
-        "category": "التصنيف",
-        "amount": "المبلغ",
-        "account_name": "الحساب",
-        "current_category": "التصنيف الحالي",
-        "user_category": "التصنيف المعتمد",
-        "cost_behavior": "نوع التكلفة",
-        "Scenario": "Scenario",
-        "forecast_revenue": "الإيرادات المتوقعة",
-        "forecast_expenses": "المصاريف المتوقعة",
-        "forecast_profit": "الربح المتوقع",
-        "forecast_margin": "الهامش المتوقع",
-        "English": "English",
-        "العربي": "العربي",
-        "Amount": "المبلغ",
-        "Value": "القيمة",
-        "Why it matters": "لماذا يهم؟",
-    }
-    out = out.rename(columns={k:v for k,v in rename_map.items() if k in out.columns})
+def render_html_table(
+    df: pd.DataFrame,
+    columns: list[str],
+    money_cols: list[str] | None = None,
+    percent_cols: list[str] | None = None,
+    title: str | None = None,
+    total_markers: list[str] | None = None,
+    strong_markers: list[str] | None = None,
+):
+    if df is None or df.empty:
+        st.info("لا توجد بيانات كافية للعرض.")
+        return
 
-    # Reorder bilingual financial statement rows: amount at left, English middle, Arabic right.
-    cols = list(out.columns)
-    priority_left = [c for c in ["المبلغ", "القيمة", "الإيرادات", "المصاريف", "الربح الأولي", "الهامش", "الإيرادات المتوقعة", "المصاريف المتوقعة", "الربح المتوقع", "الهامش المتوقع"] if c in cols]
-    priority_middle = [c for c in ["English", "Scenario"] if c in cols]
-    priority_right = [c for c in ["العربي", "الشهر", "التصنيف", "الحساب", "التصنيف الحالي", "التصنيف المعتمد", "نوع التكلفة", "لماذا يهم؟"] if c in cols]
-    remaining = [c for c in cols if c not in priority_left + priority_middle + priority_right]
+    money_cols = money_cols or []
+    percent_cols = percent_cols or []
+    total_markers = total_markers or []
+    strong_markers = strong_markers or []
 
-    # In Streamlit RTL, left-to-right physical order still follows list order; we want numbers first, Arabic last.
-    ordered = priority_left + priority_middle + remaining + priority_right
-    return out[ordered]
+    show = df.copy()
+    show = show[[c for c in columns if c in show.columns]]
 
-def style_dataframe(df: pd.DataFrame):
-    return format_financial_table(df)
+    if title:
+        st.markdown(f'<div class="wazen-table-title">{e(title)}</div>', unsafe_allow_html=True)
+
+    thead = "".join([f"<th>{e(c)}</th>" for c in show.columns])
+    rows = []
+    for _, row in show.iterrows():
+        joined = " ".join([str(row.get(c, "")) for c in show.columns])
+        row_class = ""
+        if any(marker in joined for marker in strong_markers):
+            row_class = " strong-row"
+        elif any(marker in joined for marker in total_markers):
+            row_class = " total-row"
+
+        cells = []
+        for c in show.columns:
+            val = row.get(c, "")
+            cls = ""
+            if c in money_cols:
+                cls = "num"
+                val = fmt_money(val, 0)
+            elif c in percent_cols:
+                cls = "num pct"
+                val = fmt_percent(val, 1)
+            cells.append(f'<td class="{cls}">{e(val)}</td>')
+        rows.append(f'<tr class="{row_class}">' + "".join(cells) + "</tr>")
+
+    html_table = f"""
+    <div class="wazen-table-wrap">
+        <table class="wazen-table">
+            <thead><tr>{thead}</tr></thead>
+            <tbody>{''.join(rows)}</tbody>
+        </table>
+    </div>
+    """
+    st.markdown(html_table, unsafe_allow_html=True)
+
+def render_pnl_statement(pnl_df: pd.DataFrame):
+    if pnl_df is None or pnl_df.empty:
+        st.info("لا توجد قائمة دخل.")
+        return
+    out = pnl_df.copy()
+    if "العربي" in out.columns and "English" in out.columns and "Amount" in out.columns:
+        out = out[["العربي", "English", "Amount"]]
+    total_markers = ["إجمالي الإيرادات", "تكلفة المبيعات", "مجمل الربح", "المصروفات", "Total Revenue", "COGS", "Gross Profit", "Operating Expenses"]
+    strong_markers = ["صافي الربح", "Net Profit"]
+    render_html_table(
+        out,
+        columns=["العربي", "English", "Amount"],
+        money_cols=["Amount"],
+        total_markers=total_markers,
+        strong_markers=strong_markers,
+    )
+
+def build_monthly_profitability_table(monthly_pnl_df: pd.DataFrame, pnl_model: dict) -> pd.DataFrame:
+    if monthly_pnl_df is None or monthly_pnl_df.empty:
+        return pd.DataFrame()
+
+    df = sort_month_df(monthly_pnl_df, "month").copy()
+    for col in ["revenue", "expenses"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    total_revenue = df["revenue"].sum()
+    tb_net_purchases = float(pnl_model.get("net_purchases", pnl_model.get("cogs", 0)) or 0)
+
+    if total_revenue:
+        df["net_purchases_allocated"] = df["revenue"] / total_revenue * tb_net_purchases
+    else:
+        df["net_purchases_allocated"] = 0
+
+    df["operating_profit_before_opex"] = df["revenue"] - df["net_purchases_allocated"]
+    df["operating_profit_margin"] = df.apply(lambda r: r["operating_profit_before_opex"] / r["revenue"] if r["revenue"] else 0, axis=1)
+    df["net_profit"] = df["revenue"] - df["net_purchases_allocated"] - df["expenses"]
+    df["net_profit_margin"] = df.apply(lambda r: r["net_profit"] / r["revenue"] if r["revenue"] else 0, axis=1)
+
+    return pd.DataFrame({
+        "الشهر": df["month"].map(lambda x: MONTH_AR.get(str(x), str(x))),
+        "الإيراد": df["revenue"],
+        "صافي المشتريات": df["net_purchases_allocated"],
+        "هامش الربح التشغيلي": df["operating_profit_margin"],
+        "المصاريف": df["expenses"],
+        "صافي الربح": df["net_profit"],
+        "نسبة صافي الربح": df["net_profit_margin"],
+    })
+
+def render_monthly_profitability(monthly_pnl_df: pd.DataFrame, pnl_model: dict):
+    table = build_monthly_profitability_table(monthly_pnl_df, pnl_model)
+    if table.empty:
+        st.info("لا توجد بيانات شهرية كافية.")
+        return table
+    render_html_table(
+        table,
+        columns=["الشهر", "الإيراد", "صافي المشتريات", "هامش الربح التشغيلي", "المصاريف", "صافي الربح", "نسبة صافي الربح"],
+        money_cols=["الإيراد", "صافي المشتريات", "المصاريف", "صافي الربح"],
+        percent_cols=["هامش الربح التشغيلي", "نسبة صافي الربح"],
+    )
+    st.caption("ملاحظة: صافي المشتريات الشهري موزع تحليلياً حسب وزن الإيراد الشهري لأن المصدر الرسمي للمشتريات هو ميزان المراجعة.")
+    return table
+
+def render_ratios_table(ratios_df: pd.DataFrame):
+    if ratios_df is None or ratios_df.empty:
+        st.info("لا توجد نسب كافية.")
+        return
+    out = ratios_df.copy()
+    out = out.rename(columns={"Value": "القيمة", "Why it matters": "لماذا يهم؟"})
+    render_html_table(
+        out,
+        columns=["العربي", "English", "القيمة", "لماذا يهم؟"],
+        percent_cols=["القيمة"],
+    )
+
+def render_simple_financial_table(df: pd.DataFrame, columns: list[str], money_cols=None, percent_cols=None, title=None):
+    render_html_table(df, columns=columns, money_cols=money_cols or [], percent_cols=percent_cols or [], title=title)

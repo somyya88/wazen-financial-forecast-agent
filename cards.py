@@ -1,27 +1,24 @@
+import html
 import streamlit as st
 
-def _split_label(label: str):
-    if "/" in label:
-        left, right = [x.strip() for x in label.split("/", 1)]
-        # Existing app labels are usually English / Arabic. Display Arabic first.
-        return right, left
-    return label, ""
+def _e(value):
+    return html.escape("" if value is None else str(value))
 
 def kpi_card(label: str, value: str, note: str = ""):
-    main_label, sub_label = _split_label(label)
-    value_html = f'<div class="kpi-value">{value}</div>' if value else ''
+    label = _e(label)
+    value = _e(value) if value else "—"
+    note = _e(note)
     st.markdown(f"""
     <div class="kpi-card">
-        <div class="kpi-accent"></div>
-        <div class="kpi-label-main">{main_label}</div>
-        <div class="kpi-label-sub">{sub_label}</div>
-        {value_html}
+        <div class="kpi-card-accent"></div>
+        <div class="kpi-label">{label}</div>
+        <div class="kpi-value">{value}</div>
         <div class="kpi-note">{note}</div>
     </div>
     """, unsafe_allow_html=True)
 
 def section_header(title: str):
-    st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-header">{_e(title)}</div>', unsafe_allow_html=True)
 
 def message_box(message: str, level: str = "info"):
     cls = "info-box"
