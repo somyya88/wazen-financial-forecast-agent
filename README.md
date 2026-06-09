@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V8.8
+# Wazen CFO Intelligence Agent V8.8.1
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
 
@@ -111,3 +111,9 @@ Only one file can be selected as the official revenue source.
 - Adds an Operating Expenses drill-down expander directly under P&L.
 - Makes Operating Expenses row visually clickable with an anchor to the drill-down section.
 - Adds hover tooltips on monthly profitability rows showing operating profit amount.
+
+
+## V8.8.1 hotfix
+
+- Fixed theme.py CSS block causing NameError at app startup.
+- Rewrote theme.py using a safe CSS string instead of injected raw CSS.
