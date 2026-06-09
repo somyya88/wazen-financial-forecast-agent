@@ -43,7 +43,7 @@ if "mapping_signature" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V8.6</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V8.6.1</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.button("تحديث / مسح النموذج السابق"):
@@ -298,7 +298,7 @@ if st.session_state.files:
         financial_model = build_basic_financial_model(revenue_model, expense_model)
         validation_checks = validate_project(updated_rows, revenue_model, expense_model, tb_model)
 
-        pnl_model = build_pnl(revenue_model, expense_model)
+        pnl_model = build_pnl(revenue_model, expense_model, tb_model)
         monthly_pnl_model = monthly_pnl(revenue_model, expense_model)
         ratio_model = build_ratios(pnl_model, expense_model)
         breakeven_model = build_breakeven(pnl_model, expense_model)

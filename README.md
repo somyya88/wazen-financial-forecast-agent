@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V8.6
+# Wazen CFO Intelligence Agent V8.6.1
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
 
@@ -84,3 +84,10 @@ Only one file can be selected as the official revenue source.
 - P&L reads net sales, other revenues, opening inventory, net purchases, ending inventory, COGS, operating expenses, and net profit from Trial Balance.
 - COGS formula: Opening Inventory + Net Purchases - Ending Inventory.
 - If inventory accounts are missing, inventory is assumed to be zero and net purchases are used as COGS proxy.
+
+
+## V8.6.1 hotfix
+
+- Fixes app.py to call:
+  build_pnl(revenue_model, expense_model, tb_model)
+- This enables the P&L page and dashboard to use the Trial Balance as the primary income statement source.
