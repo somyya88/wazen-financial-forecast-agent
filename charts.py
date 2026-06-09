@@ -39,7 +39,7 @@ def line_chart(df, x, y, title):
         name=title,
     ))
     fig.update_layout(
-        title=title,
+        title=dict(text=title, x=1, xanchor="right"),
         height=380,
         margin=dict(l=20, r=25, t=60, b=40),
         plot_bgcolor="white",

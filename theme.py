@@ -266,6 +266,91 @@ def apply_theme():
         background: #FFFFFF;
         border-radius: 16px;
     }
+
+    h1, h2, h3, h4, h5, h6,
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4,
+    div[data-testid="stMarkdownContainer"] h1,
+    div[data-testid="stMarkdownContainer"] h2,
+    div[data-testid="stMarkdownContainer"] h3,
+    div[data-testid="stMarkdownContainer"] h4 {
+        text-align: right !important;
+        direction: rtl !important;
+    }
+
+    .wazen-table-title,
+    .js-plotly-plot .gtitle {
+        text-align: right !important;
+        direction: rtl !important;
+    }
+
+    .insight-panel {
+        background: linear-gradient(180deg, #FFFFFF 0%, #FBFCFF 100%);
+        border: 1px solid #E6EAF0;
+        border-radius: 20px;
+        padding: 22px 24px;
+        box-shadow: 0 14px 34px rgba(23,71,158,0.07);
+        margin: 16px 0 26px;
+        direction: rtl;
+    }
+
+    .insight-title {
+        font-size: 22px;
+        font-weight: 900;
+        color: #111827;
+        margin-bottom: 8px;
+    }
+
+    .insight-status {
+        display: inline-block;
+        color: #17479E;
+        background: #EAF2FF;
+        border: 1px solid #C8D8F5;
+        border-radius: 999px;
+        padding: 6px 14px;
+        font-weight: 800;
+        margin: 4px 0 16px;
+    }
+
+    .insight-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        margin: 10px 0 14px;
+    }
+
+    .insight-box {
+        background: #F7F9FC;
+        border: 1px solid #E6EAF0;
+        border-radius: 14px;
+        padding: 14px 16px;
+    }
+
+    .insight-box-label {
+        color: #667085;
+        font-size: 13px;
+        font-weight: 800;
+        margin-bottom: 6px;
+    }
+
+    .insight-box-text {
+        color: #1F2D3D;
+        line-height: 1.75;
+        font-size: 15px;
+    }
+
+    .insight-bullets {
+        margin: 10px 18px 0 0;
+        padding: 0;
+        line-height: 1.9;
+        color: #344054;
+    }
+
+    @media (max-width: 900px) {
+        .insight-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)

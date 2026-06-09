@@ -21,7 +21,8 @@ from analysis_router import tabs_for_mode
 from theme import apply_theme
 from cards import kpi_card, section_header, message_box
 from charts import line_chart, bar_chart, pie_chart
-from display_utils import render_pnl_statement, render_monthly_profitability, render_ratios_table, render_simple_financial_table, sort_month_df
+from insights_engine import build_ratio_insights, build_breakeven_insights, build_forecast_insights
+from display_utils import render_pnl_statement, render_monthly_profitability, render_ratios_table, render_simple_financial_table, sort_month_df, render_insight_panel
 from excel_pack import build_excel_pack
 
 st.set_page_config(page_title=APP_NAME, page_icon="📊", layout="wide")
@@ -44,7 +45,7 @@ if "mapping_signature" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V8.8.1</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V8.9</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.button("تحديث / مسح النموذج السابق"):
@@ -422,6 +423,14 @@ if st.session_state.models:
             elif tab_name in ["Ratios"]:
                 st.subheader("تحليل النسب")
                 ratios_df = ratio_model.get("ratios", pd.DataFrame())
+                ratio_insights = build_ratio_insights(pnl_model, ratio_model)
+                render_insight_panel(
+                    "قراءة CFO للنسب",
+                    ratio_insights["status"],
+                    ratio_insights["risk"],
+                    ratio_insights["decision"],
+                    ratio_insights["bullets"],
+                )
                 if not ratios_df.empty:
                     render_ratios_table(ratios_df)
                 message_box(ratio_model.get("biggest_risk", ""), "warning")
@@ -469,6 +478,14 @@ if st.session_state.models:
             elif tab_name == "Break-even":
                 st.subheader("تحليل نقطة التعادل")
                 st.info(breakeven_model.get("note", ""))
+                be_insights = build_breakeven_insights(pnl_model, breakeven_model)
+                render_insight_panel(
+                    "قراءة CFO لنقطة التعادل",
+                    be_insights["status"],
+                    be_insights["risk"],
+                    be_insights["decision"],
+                    be_insights["bullets"],
+                )
                 be_summary = breakeven_model.get("summary", pd.DataFrame()).copy()
                 render_simple_financial_table(
                     be_summary,
@@ -487,7 +504,24 @@ if st.session_state.models:
             elif tab_name == "Forecast":
                 st.subheader("التوقعات والسيناريوهات")
                 st.info(models.get("forecast_note", ""))
+                forecast_insights = build_forecast_insights(forecast_model, pnl_model)
+                render_insight_panel(
+                    "قراءة CFO للتوقعات",
+                    forecast_insights["status"],
+                    forecast_insights["risk"],
+                    forecast_insights["decision"],
+                    forecast_insights["bullets"],
+                )
+                if forecast_insights.get("summary_df") is not None and not forecast_insights.get("summary_df").empty:
+                    st.markdown("#### ملخص السيناريوهات")
+                    render_simple_financial_table(
+                        forecast_insights["summary_df"],
+                        columns=["السيناريو", "Scenario", "متوسط الإيراد المتوقع", "متوسط الربح المتوقع", "هامش الربح المتوقع"],
+                        money_cols=["متوسط الإيراد المتوقع", "متوسط الربح المتوقع"],
+                        percent_cols=["هامش الربح المتوقع"],
+                    )
                 if not forecast_model.empty:
+                    st.markdown("#### تفاصيل التوقعات الشهرية")
                     forecast_show = forecast_model.copy()
                     render_simple_financial_table(
                         forecast_show.rename(columns={

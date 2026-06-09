@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V8.8.1
+# Wazen CFO Intelligence Agent V8.9
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
 
@@ -117,3 +117,17 @@ Only one file can be selected as the official revenue source.
 
 - Fixed theme.py CSS block causing NameError at app startup.
 - Rewrote theme.py using a safe CSS string instead of injected raw CSS.
+
+
+## V8.9 additions
+
+- Forces Streamlit headings and chart titles to align right for Arabic RTL UI.
+- Adds CFO insight panels for:
+  - Ratio Analysis
+  - Break-even Analysis
+  - Forecast & Scenarios
+- Adds scenario summary table before monthly forecast details.
+- Improves value-add by showing:
+  - risk interpretation
+  - recommended next decision
+  - key analytical bullets

@@ -225,3 +225,26 @@ def render_ratios_table(ratios_df: pd.DataFrame):
 
 def render_simple_financial_table(df: pd.DataFrame, columns: list[str], money_cols=None, percent_cols=None, title=None):
     render_html_table(df, columns=columns, money_cols=money_cols or [], percent_cols=percent_cols or [], title=title)
+
+
+def render_insight_panel(title: str, status: str, risk: str, decision: str, bullets: list[str] | None = None):
+    bullets = bullets or []
+    bullet_html = "".join([f"<li>{e(b)}</li>" for b in bullets])
+    html_block = f"""
+    <div class="insight-panel">
+        <div class="insight-title">{e(title)}</div>
+        <div class="insight-status">{e(status)}</div>
+        <div class="insight-grid">
+            <div class="insight-box">
+                <div class="insight-box-label">الخطر الأهم</div>
+                <div class="insight-box-text">{e(risk)}</div>
+            </div>
+            <div class="insight-box">
+                <div class="insight-box-label">القرار المقترح</div>
+                <div class="insight-box-text">{e(decision)}</div>
+            </div>
+        </div>
+        <ul class="insight-bullets">{bullet_html}</ul>
+    </div>
+    """
+    st.markdown(html_block, unsafe_allow_html=True)
