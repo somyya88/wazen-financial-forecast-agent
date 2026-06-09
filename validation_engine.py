@@ -30,6 +30,16 @@ def validate_project(file_rows: list[dict], revenue_model: dict | None = None, e
             checks.append({"level": "info", "check": "Expense Notes", "message": note})
 
     # Compare official revenue with reliable TB net sales metric, not raw credit totals.
+    if tb_model:
+        metrics_for_purchase = tb_model.get("metrics", {}) if isinstance(tb_model, dict) else {}
+        tb_purchases = metrics_for_purchase.get("net_purchases")
+        if tb_purchases:
+            checks.append({
+                "level": "info",
+                "check": "Purchases from Trial Balance",
+                "message": f"تم اكتشاف صافي مشتريات في ميزان المراجعة بقيمة {tb_purchases:,.2f}. سيتم استخدامها كتكلفة إيراد داعمة إذا لم تكن موجودة في تقرير المصروفات."
+            })
+
     if tb_model and revenue_model:
         metrics = tb_model.get("metrics", {}) if isinstance(tb_model, dict) else {}
         tb_revenue = metrics.get("net_sales")

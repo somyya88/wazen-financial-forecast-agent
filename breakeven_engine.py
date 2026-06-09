@@ -22,6 +22,10 @@ def build_breakeven(pnl_model, expense_model):
     fixed_costs = fixed_raw + (semi_raw * 0.50)
     variable_costs = variable_raw + (semi_raw * 0.50)
 
+    # Add trial-balance purchases adjustment as variable/direct cost when present.
+    tb_purchases_adjustment = float(pnl_model.get("tb_purchases_adjustment", 0) or 0)
+    variable_costs += tb_purchases_adjustment
+
     variable_cost_ratio = variable_costs / revenue if revenue else 0
     contribution_margin = 1 - variable_cost_ratio
     breakeven_revenue = fixed_costs / contribution_margin if contribution_margin > 0 else 0

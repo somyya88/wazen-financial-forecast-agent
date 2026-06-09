@@ -42,6 +42,7 @@ def build_excel_pack(
             ["Analysis Period / فترة التحليل", ", ".join(confirmed_months)],
             ["Revenue / الإيرادات", pnl_model.get("revenue", financial_model.get("revenue", 0))],
             ["COGS / تكلفة الإيراد", pnl_model.get("cogs", 0)],
+            ["TB Purchases Adjustment / مشتريات من ميزان المراجعة", pnl_model.get("tb_purchases_adjustment", 0)],
             ["Gross Profit / مجمل الربح", pnl_model.get("gross_profit", 0)],
             ["Opex / المصاريف التشغيلية", pnl_model.get("opex", 0)],
             ["EBITDA", pnl_model.get("ebitda", 0)],

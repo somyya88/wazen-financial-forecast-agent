@@ -56,6 +56,38 @@ def _find_net_sales(work: pd.DataFrame) -> float | None:
 
     return None
 
+
+def _find_net_purchases(work: pd.DataFrame) -> float | None:
+    """
+    Extract net purchases from the trial balance when available.
+    In many accounting systems, purchases are part of the P&L but may not be present
+    in the separate expense report. We use the explicit row 'صافي المشتريات'
+    when present, otherwise fallback to account code starting with 3.
+    """
+    if work.empty:
+        return None
+
+    exact = work["account_name"].astype(str).str.strip().eq("صافي المشتريات")
+    if exact.any():
+        row = work.loc[exact].iloc[0]
+        value = float(row.get("debit", 0)) - float(row.get("credit", 0))
+        if abs(value) > 0:
+            return abs(value)
+        net = float(row.get("net", 0))
+        return abs(net)
+
+    # Fallback to account class 3, excluding parent duplicates when possible.
+    code = work["account_code"].astype(str).str.strip()
+    purchase_rows = work[code.str.startswith("3")]
+    if not purchase_rows.empty:
+        # Prefer leaf accounts with longer codes, otherwise take top-level net.
+        leaf_rows = purchase_rows[purchase_rows["account_code"].astype(str).str.len() >= 5]
+        target = leaf_rows if not leaf_rows.empty else purchase_rows
+        val = float((target["debit"] - target["credit"]).sum())
+        return abs(val) if abs(val) > 0 else None
+
+    return None
+
 def parse_trial_balance(file_record: dict) -> dict:
     df = file_record["primary_df"].copy()
     account_col = find_column(df, ["اسم الحساب", "account name", "account", "الحساب", "البيان"])
@@ -77,14 +109,20 @@ def parse_trial_balance(file_record: dict) -> dict:
     summary = work.groupby("category", as_index=False)[["debit", "credit", "net"]].sum()
 
     net_sales = _find_net_sales(work)
+    net_purchases = _find_net_purchases(work)
     metrics = {
         "net_sales": net_sales,
         "net_sales_basis": "صافي المبيعات" if net_sales is not None else None,
+        "net_purchases": net_purchases,
+        "net_purchases_basis": "صافي المشتريات" if net_purchases is not None else None,
     }
 
     return {
         "tb": work,
         "summary": summary,
         "metrics": metrics,
-        "notes": ["تم استخراج صافي المبيعات من صف صافي المبيعات عند توفره بدلاً من جمع كل الحسابات التي تحتوي كلمة مبيعات."],
+        "notes": [
+            "تم استخراج صافي المبيعات من صف صافي المبيعات عند توفره بدلاً من جمع كل الحسابات التي تحتوي كلمة مبيعات.",
+            "تم فحص صافي المشتريات من ميزان المراجعة لاستخدامه كتكلفة إيراد داعمة إذا لم يظهر ضمن تقرير المصروفات."
+        ],
     }
