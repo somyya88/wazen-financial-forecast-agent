@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V8.2
+# Wazen CFO Intelligence Agent V8.3
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
 
@@ -52,3 +52,11 @@ Only one file can be selected as the official revenue source.
 - Adds 'صافي المشتريات' from Trial Balance into COGS when it is not already in the expense report.
 - Break-even includes TB purchases adjustment as variable/direct cost.
 - Data Quality shows a note when purchases are detected in Trial Balance.
+
+
+## V8.3 additions
+
+- Stable Expense Mapping editor using a form.
+- Mapping changes are not used until the user clicks "حفظ Expense Mapping".
+- Prevents Streamlit reruns from reverting user edits.
+- Adds a reset button to regenerate suggested mapping only when explicitly requested.

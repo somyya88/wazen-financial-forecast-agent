@@ -36,6 +36,10 @@ if "selected_months" not in st.session_state:
     st.session_state.selected_months = []
 if "expense_mapping" not in st.session_state:
     st.session_state.expense_mapping = None
+if "expense_mapping_saved" not in st.session_state:
+    st.session_state.expense_mapping_saved = False
+if "mapping_signature" not in st.session_state:
+    st.session_state.mapping_signature = None
 
 st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V7</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
@@ -46,6 +50,8 @@ if st.button("تحديث / مسح النموذج السابق"):
     st.session_state.models = {}
     st.session_state.selected_months = []
     st.session_state.expense_mapping = None
+    st.session_state.expense_mapping_saved = False
+    st.session_state.mapping_signature = None
     st.rerun()
 
 
@@ -202,29 +208,61 @@ if st.session_state.files:
     section_header("4. تصنيف المصاريف Expense Mapping")
 
     if preview_expense_model and not preview_expense_model.get("expense_long", pd.DataFrame()).empty:
+        # Stable account signature: regenerate suggested mapping only when the expense accounts change.
         initial_mapping = build_expense_mapping(preview_expense_model, industry)
-        if st.session_state.expense_mapping is None:
-            st.session_state.expense_mapping = initial_mapping
+        current_signature = "|".join(initial_mapping["account_name"].astype(str).tolist())
 
-        st.info("راجعي تصنيف الحسابات ونوع التكلفة قبل بناء P&L وBreak-even. هذا أهم جزء لدقة التحليل.")
-        edited_mapping = st.data_editor(
-            st.session_state.expense_mapping,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "account_name": st.column_config.TextColumn("الحساب", disabled=True),
-                "current_category": st.column_config.TextColumn("التصنيف الحالي", disabled=True),
-                "user_category": st.column_config.SelectboxColumn("التصنيف المعتمد", options=CATEGORY_OPTIONS),
-                "cost_behavior": st.column_config.SelectboxColumn("نوع التكلفة", options=COST_BEHAVIOR_OPTIONS),
-                "amount": st.column_config.NumberColumn("المبلغ", format="%.2f", disabled=True),
-            },
-            key="expense_mapping_editor",
-        )
-        st.session_state.expense_mapping = edited_mapping
+        if st.session_state.mapping_signature != current_signature:
+            st.session_state.expense_mapping = initial_mapping.copy()
+            st.session_state.expense_mapping_saved = False
+            st.session_state.mapping_signature = current_signature
+
+        st.info("عدّلي التصنيف ثم اضغطي **حفظ Expense Mapping**. لن يتم اعتماد أي تعديل في P&L أو Break-even قبل الحفظ.")
+
+        c_map1, c_map2, c_map3 = st.columns([1, 1, 2])
+        with c_map1:
+            if st.button("إعادة توليد التصنيف المقترح"):
+                st.session_state.expense_mapping = initial_mapping.copy()
+                st.session_state.expense_mapping_saved = False
+                st.rerun()
+        with c_map2:
+            if st.session_state.expense_mapping_saved:
+                st.success("تم حفظ التصنيف")
+            else:
+                st.warning("التصنيف غير محفوظ بعد")
+
+        with st.form("expense_mapping_form"):
+            edited_mapping = st.data_editor(
+                st.session_state.expense_mapping,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "account_name": st.column_config.TextColumn("الحساب", disabled=True),
+                    "current_category": st.column_config.TextColumn("التصنيف الحالي", disabled=True),
+                    "user_category": st.column_config.SelectboxColumn("التصنيف المعتمد", options=CATEGORY_OPTIONS, required=True),
+                    "cost_behavior": st.column_config.SelectboxColumn("نوع التكلفة", options=COST_BEHAVIOR_OPTIONS, required=True),
+                    "amount": st.column_config.NumberColumn("المبلغ", format="%.2f", disabled=True),
+                },
+                key="expense_mapping_editor_v83",
+                num_rows="fixed",
+            )
+
+            save_mapping = st.form_submit_button("حفظ Expense Mapping")
+
+        if save_mapping:
+            st.session_state.expense_mapping = edited_mapping.copy()
+            st.session_state.expense_mapping_saved = True
+            st.success("تم حفظ Expense Mapping. يمكنك الآن بناء النموذج المالي.")
+            st.rerun()
+
+        st.caption("ملاحظة: التعديلات داخل الجدول لا تدخل في الحسابات إلا بعد الضغط على زر الحفظ.")
     else:
         message_box("لا توجد مصاريف كافية لبناء Expense Mapping.", "warning")
 
-    if st.button("بناء النموذج المالي الأولي"):
+    if preview_expense_model is not None and not st.session_state.expense_mapping_saved:
+        message_box("يجب حفظ Expense Mapping قبل بناء النموذج حتى لا يرجع التصنيف للتصنيف المقترح.", "warning")
+
+    if st.button("بناء النموذج المالي الأولي", disabled=(preview_expense_model is not None and not st.session_state.expense_mapping_saved)):
         readable_files = [r for r in st.session_state.files if not r.get("read_error")]
         revenue_record = next((r for r in readable_files if r["selected_role"] == "official_revenue_source"), None)
         expense_record = next((r for r in readable_files if r["selected_role"] == "official_expense_source"), None)
@@ -234,7 +272,7 @@ if st.session_state.files:
         expense_model = build_expense_model(expense_record, revenue_model.get("total_revenue", 0) if revenue_model else 0) if expense_record else None
 
         # Apply user-approved expense mapping before period filtering and financial modeling.
-        if expense_model and st.session_state.expense_mapping is not None:
+        if expense_model and st.session_state.expense_mapping is not None and st.session_state.expense_mapping_saved:
             expense_model = apply_expense_mapping(expense_model, st.session_state.expense_mapping)
 
         # Apply confirmed analysis period.
