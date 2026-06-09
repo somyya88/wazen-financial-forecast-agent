@@ -22,6 +22,7 @@ from theme import apply_theme
 from cards import kpi_card, section_header, message_box
 from charts import line_chart, bar_chart, pie_chart
 from excel_pack import build_excel_pack
+from display_utils import style_dataframe
 
 st.set_page_config(page_title=APP_NAME, page_icon="📊", layout="wide")
 apply_theme()
@@ -43,7 +44,7 @@ if "mapping_signature" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V8.6.1</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V8.7</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.button("تحديث / مسح النموذج السابق"):
@@ -342,7 +343,7 @@ if st.session_state.models:
     for check in validation_checks:
         message_box(f"**{check['check']}** — {check['message']}", check["level"])
 
-    section_header("5. Dashboard أولي")
+    section_header("5. Dashboard")
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -375,7 +376,7 @@ if st.session_state.models:
             if tab_name in ["Dashboard", "Revenue"]:
                 st.subheader("تحليل الإيرادات")
                 if revenue_model and not revenue_model.get("monthly_revenue", pd.DataFrame()).empty:
-                    st.dataframe(revenue_model["monthly_revenue"], use_container_width=True)
+                    st.dataframe(style_dataframe(revenue_model["monthly_revenue"]), use_container_width=True, hide_index=True)
                     line_chart(revenue_model["monthly_revenue"], "month", "revenue", "Revenue Trend")
                 else:
                     st.info("لا توجد بيانات إيرادات كافية.")
@@ -383,10 +384,10 @@ if st.session_state.models:
             elif tab_name == "P&L":
                 st.subheader("قائمة الدخل")
                 st.info(pnl_model.get("note", ""))
-                st.dataframe(pnl_model.get("pnl", pd.DataFrame()), use_container_width=True)
+                st.dataframe(style_dataframe(pnl_model.get("pnl", pd.DataFrame())), use_container_width=True, hide_index=True)
                 if not monthly_pnl_model.empty:
                     st.markdown("#### الربحية الشهرية")
-                    st.dataframe(monthly_pnl_model, use_container_width=True)
+                    st.dataframe(style_dataframe(monthly_pnl_model), use_container_width=True, hide_index=True)
                     line_chart(monthly_pnl_model, "month", "preliminary_profit", "Monthly Profitability")
 
             elif tab_name in ["Ratios"]:
@@ -395,14 +396,14 @@ if st.session_state.models:
                 if not ratios_df.empty:
                     show = ratios_df.copy()
                     show["Value"] = show["Value"].apply(lambda x: f"{x:.1%}")
-                    st.dataframe(show, use_container_width=True)
+                    st.dataframe(style_dataframe(show), use_container_width=True, hide_index=True)
                 message_box(ratio_model.get("biggest_risk", ""), "warning")
                 message_box(ratio_model.get("next_decision", ""), "info")
 
             elif tab_name == "Expense Mapping":
                 st.subheader("Expense Mapping المعتمد")
                 if expense_mapping_model is not None and not expense_mapping_model.empty:
-                    st.dataframe(expense_mapping_model, use_container_width=True)
+                    st.dataframe(style_dataframe(expense_mapping_model), use_container_width=True, hide_index=True)
                 else:
                     st.info("لا توجد خريطة تصنيف معتمدة.")
 
@@ -412,34 +413,34 @@ if st.session_state.models:
                     c1, c2 = st.columns(2)
                     with c1:
                         st.markdown("#### المصاريف الشهرية")
-                        st.dataframe(expense_model.get("monthly_expenses", pd.DataFrame()), use_container_width=True)
+                        st.dataframe(style_dataframe(expense_model.get("monthly_expenses", pd.DataFrame())), use_container_width=True, hide_index=True)
                         bar_chart(expense_model.get("monthly_expenses", pd.DataFrame()), "month", "expenses", "Monthly Expenses")
                     with c2:
                         st.markdown("#### هيكل المصاريف")
-                        st.dataframe(expense_model.get("by_category", pd.DataFrame()), use_container_width=True)
+                        st.dataframe(style_dataframe(expense_model.get("by_category", pd.DataFrame())), use_container_width=True, hide_index=True)
                         pie_chart(expense_model.get("by_category", pd.DataFrame()), "category", "amount", "Expense Structure")
                     st.markdown("#### أكبر 10 مصاريف")
-                    st.dataframe(expense_model.get("top_expenses", pd.DataFrame()), use_container_width=True)
+                    st.dataframe(style_dataframe(expense_model.get("top_expenses", pd.DataFrame())), use_container_width=True, hide_index=True)
                 else:
                     st.info("لم يتم اختيار أو قراءة مصدر مصاريف رسمي.")
 
             elif tab_name == "Break-even":
                 st.subheader("تحليل نقطة التعادل")
                 st.info(breakeven_model.get("note", ""))
-                st.dataframe(breakeven_model.get("summary", pd.DataFrame()), use_container_width=True)
+                st.dataframe(style_dataframe(breakeven_model.get("summary", pd.DataFrame())), use_container_width=True, hide_index=True)
                 st.markdown("#### السيناريوهات")
-                st.dataframe(breakeven_model.get("scenarios", pd.DataFrame()), use_container_width=True)
+                st.dataframe(style_dataframe(breakeven_model.get("scenarios", pd.DataFrame())), use_container_width=True, hide_index=True)
 
             elif tab_name == "Forecast":
                 st.subheader("التوقعات والسيناريوهات")
                 st.info(models.get("forecast_note", ""))
-                st.dataframe(forecast_model, use_container_width=True)
+                st.dataframe(style_dataframe(forecast_model), use_container_width=True, hide_index=True)
                 if not forecast_model.empty:
                     line_chart(forecast_model, "month", "forecast_profit", "Forecast Profit by Scenario")
 
             elif tab_name == "Glossary":
                 st.subheader("قاموس المصطلحات المالية")
-                st.dataframe(glossary_model, use_container_width=True)
+                st.dataframe(style_dataframe(glossary_model), use_container_width=True, hide_index=True)
 
             elif tab_name == "Export":
                 st.subheader("تصدير Excel CFO Pack")

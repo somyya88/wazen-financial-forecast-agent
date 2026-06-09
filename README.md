@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V8.6.1
+# Wazen CFO Intelligence Agent V8.7
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
 
@@ -91,3 +91,12 @@ Only one file can be selected as the official revenue source.
 - Fixes app.py to call:
   build_pnl(revenue_model, expense_model, tb_model)
 - This enables the P&L page and dashboard to use the Trial Balance as the primary income statement source.
+
+
+## V8.7 additions
+
+- Premium Wazen UI refresh for KPI cards.
+- Tables display Arabic label on the right, English label beside it, and numeric values on the left.
+- Amounts are formatted with thousands separators.
+- Percentages are displayed with `%`.
+- Improved dashboard number wrapping and card hierarchy.
