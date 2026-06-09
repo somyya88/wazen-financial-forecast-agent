@@ -351,6 +351,22 @@ def apply_theme():
         }
     }
 
+
+    .insight-title {
+        color: #17479E !important;
+        letter-spacing: -0.2px;
+    }
+
+    .insight-status {
+        background: #F3F7FF !important;
+        color: #17479E !important;
+        border-color: #BFD2F4 !important;
+    }
+
+    .insight-bullets li {
+        margin-bottom: 8px;
+    }
+
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)

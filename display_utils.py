@@ -236,11 +236,11 @@ def render_insight_panel(title: str, status: str, risk: str, decision: str, bull
         <div class="insight-status">{e(status)}</div>
         <div class="insight-grid">
             <div class="insight-box">
-                <div class="insight-box-label">الخطر الأهم</div>
+                <div class="insight-box-label">المخاطر الرئيسية</div>
                 <div class="insight-box-text">{e(risk)}</div>
             </div>
             <div class="insight-box">
-                <div class="insight-box-label">القرار المقترح</div>
+                <div class="insight-box-label">الإجراء المقترح</div>
                 <div class="insight-box-text">{e(decision)}</div>
             </div>
         </div>

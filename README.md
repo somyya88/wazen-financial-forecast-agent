@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V8.9
+# Wazen CFO Intelligence Agent V9.0
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
 
@@ -131,3 +131,18 @@ Only one file can be selected as the official revenue source.
   - risk interpretation
   - recommended next decision
   - key analytical bullets
+
+
+## V9.0 additions
+
+- Replaced non-professional insight titles with executive financial labels:
+  - التقييم التنفيذي للنسب المالية
+  - تحليل التعادل وهامش الأمان
+  - تحليل السيناريوهات والتوقعات
+- Converted gendered Arabic wording to neutral professional language.
+- Fixed break-even key mismatch and rebuilt break-even logic using official P&L values:
+  - Trial Balance revenue and COGS
+  - Official operating expenses
+  - Expense Mapping only for fixed / variable split
+- Added more actionable risk and decision language.
+- Improved percentage formatting in Arabic text.

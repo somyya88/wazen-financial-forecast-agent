@@ -45,7 +45,7 @@ if "mapping_signature" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V8.9</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.0</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.button("تحديث / مسح النموذج السابق"):
@@ -208,7 +208,7 @@ if st.session_state.files:
     st.markdown(f"**الفترة المقترحة للتحليل:** {', '.join(suggested_months) if suggested_months else 'غير متاح'}")
 
     selected_months = st.multiselect(
-        "اعتمدي شهور التحليل",
+        "اعتماد شهور التحليل",
         options=suggested_months or revenue_months or expense_months,
         default=st.session_state.selected_months or suggested_months or revenue_months or expense_months,
         help="الإيجنت يقرأ الشهور تلقائياً، لكن يجب اعتماد الفترة لتجنب دخول شهر غير مكتمل."
@@ -421,11 +421,11 @@ if st.session_state.models:
                         line_chart(chart_df, "month", "net_profit", "Monthly Net Profit")
 
             elif tab_name in ["Ratios"]:
-                st.subheader("تحليل النسب")
+                st.subheader("تحليل النسب المالية")
                 ratios_df = ratio_model.get("ratios", pd.DataFrame())
                 ratio_insights = build_ratio_insights(pnl_model, ratio_model)
                 render_insight_panel(
-                    "قراءة CFO للنسب",
+                    "التقييم التنفيذي للنسب المالية",
                     ratio_insights["status"],
                     ratio_insights["risk"],
                     ratio_insights["decision"],
@@ -480,7 +480,7 @@ if st.session_state.models:
                 st.info(breakeven_model.get("note", ""))
                 be_insights = build_breakeven_insights(pnl_model, breakeven_model)
                 render_insight_panel(
-                    "قراءة CFO لنقطة التعادل",
+                    "تحليل التعادل وهامش الأمان",
                     be_insights["status"],
                     be_insights["risk"],
                     be_insights["decision"],
@@ -502,11 +502,11 @@ if st.session_state.models:
                 )
 
             elif tab_name == "Forecast":
-                st.subheader("التوقعات والسيناريوهات")
+                st.subheader("التوقعات والسيناريوهات المالية")
                 st.info(models.get("forecast_note", ""))
                 forecast_insights = build_forecast_insights(forecast_model, pnl_model)
                 render_insight_panel(
-                    "قراءة CFO للتوقعات",
+                    "تحليل السيناريوهات والتوقعات",
                     forecast_insights["status"],
                     forecast_insights["risk"],
                     forecast_insights["decision"],
