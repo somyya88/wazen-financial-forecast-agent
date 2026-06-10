@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V9.6
+# Wazen CFO Intelligence Agent V9.7
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
 
@@ -222,3 +222,12 @@ Only one file can be selected as the official revenue source.
 - Adds executive monthly profitability table:
   revenue, cost of revenue, gross profit, gross margin, opex, net profit, net margin.
 - Improves Arabic-first labels and executive P&L styling.
+
+## V9.7 additions
+
+- Rebuilds ratio analysis into an executive financial performance scorecard.
+- Adds rating, threshold, risk interpretation, and decision impact for each ratio.
+- Replaces ambiguous Health Score with Financial Performance Index.
+- Adds break-even confidence score and sensitivity table.
+- Adds forecast decision cards, safe monthly revenue, and loss warning.
+- Reduces superficial commentary and links recommendations to numeric thresholds.

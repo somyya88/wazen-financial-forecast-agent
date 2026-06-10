@@ -332,3 +332,25 @@ def render_executive_monthly_profitability(df: pd.DataFrame):
         money_cols=["الإيراد", "تكلفة الإيراد", "مجمل الربح", "المصاريف التشغيلية", "صافي الربح"],
         percent_cols=["هامش مجمل الربح", "هامش صافي الربح"],
     )
+
+
+def render_financial_scorecard(df: pd.DataFrame):
+    if df is None or df.empty:
+        st.info("لا توجد بيانات كافية للنسب المالية.")
+        return
+    render_html_table(
+        df,
+        columns=["المؤشر", "English", "القيمة", "التقييم", "حدود القراءة", "لماذا يهم؟", "أثر القرار"],
+        percent_cols=["القيمة"],
+    )
+
+def render_sensitivity_table(df: pd.DataFrame):
+    if df is None or df.empty:
+        st.info("لا توجد بيانات كافية لاختبار الحساسية.")
+        return
+    render_html_table(
+        df,
+        columns=["السيناريو", "English", "التكاليف الثابتة", "هامش المساهمة", "إيراد التعادل", "فجوة التعادل", "القراءة"],
+        money_cols=["التكاليف الثابتة", "إيراد التعادل", "فجوة التعادل"],
+        percent_cols=["هامش المساهمة"],
+    )

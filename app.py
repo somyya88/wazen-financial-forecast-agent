@@ -11,6 +11,7 @@ from trial_balance_engine import parse_trial_balance
 from validation_engine import validate_project
 from financial_model import build_basic_financial_model
 from period_engine import months_from_revenue_model, months_from_expense_model, common_months, filter_revenue_model, filter_expense_model
+from executive_insights_engine import build_financial_performance_scorecard, build_break_even_confidence, build_break_even_sensitivity, build_forecast_decision
 from executive_statement_engine import build_executive_kpis, build_executive_income_statement, build_executive_monthly_profitability
 from financial_statement_engine import build_pnl, build_management_income_statement, monthly_pnl
 from ratio_engine import build_ratios
@@ -26,7 +27,7 @@ from data_quality_engine import build_source_reconciliation, build_data_quality_
 from insights_engine import build_ratio_insights, build_breakeven_insights, build_forecast_insights, build_expense_insights, build_forecast_assumptions_table
 from expense_classifier import apply_smart_classification
 from mapping_ui import render_expense_mapping_editor
-from display_utils import render_pnl_statement, render_monthly_profitability, render_ratios_table, render_simple_financial_table, sort_month_df, render_insight_panel, render_breakeven_summary, render_reconciliation_table, render_executive_income_statement, render_executive_monthly_profitability
+from display_utils import render_pnl_statement, render_monthly_profitability, render_ratios_table, render_simple_financial_table, sort_month_df, render_insight_panel, render_breakeven_summary, render_reconciliation_table, render_executive_income_statement, render_executive_monthly_profitability, render_financial_scorecard, render_sensitivity_table
 from excel_pack import build_excel_pack
 
 st.set_page_config(page_title=APP_NAME, page_icon="📊", layout="wide")
@@ -49,7 +50,7 @@ if "mapping_signature" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.6</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.7</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.button("تحديث / مسح النموذج السابق"):
@@ -337,6 +338,7 @@ if st.session_state.models:
         message_box(f"**{check['check']}** — {check['message']}", check["level"])
 
     exec_kpis = build_executive_kpis(pnl_model, expense_model)
+    performance_scorecard = build_financial_performance_scorecard(pnl_model, breakeven_model)
     section_header("5. لوحة المؤشرات التنفيذية")
 
     c1, c2, c3, c4 = st.columns(4)
@@ -347,7 +349,7 @@ if st.session_state.models:
     with c3:
         kpi_card("صافي الربح", f"{exec_kpis.get('net_profit', 0):,.0f}", f"هامش صافي الربح {exec_kpis.get('net_margin', 0)*100:.1f}%")
     with c4:
-        kpi_card("الصحة المالية", f"{ratio_model.get('financial_health_score', 0):.0f}/100", ratio_model.get("biggest_risk", ""))
+        kpi_card("مؤشر الأداء المالي", f"{performance_scorecard.get('score', 0):.0f}/100", performance_scorecard.get("status", ""))
 
     c5, c6, c7, c8 = st.columns(4)
     with c5:
@@ -417,16 +419,24 @@ if st.session_state.models:
             elif tab_name in ["Ratios"]:
                 st.subheader("تحليل النسب المالية")
                 ratios_df = ratio_model.get("ratios", pd.DataFrame())
-                ratio_insights = build_ratio_insights(pnl_model, ratio_model)
+                perf = build_financial_performance_scorecard(pnl_model, breakeven_model)
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    kpi_card("مؤشر الأداء المالي", f"{perf.get('score', 0):.0f}/100", perf.get("status", ""))
+                with c2:
+                    kpi_card("أكبر نقطة مراقبة", "المصاريف", "راجع نسبة المصاريف التشغيلية وتكلفة الإيراد")
+                with c3:
+                    kpi_card("الإجراء المقترح", perf.get("action", "—"), "قرار مبني على الهوامش والتعادل")
+
                 render_insight_panel(
-                    "التقييم التنفيذي للنسب المالية",
-                    ratio_insights["status"],
-                    ratio_insights["risk"],
-                    ratio_insights["decision"],
-                    ratio_insights["bullets"],
+                    "التقييم التنفيذي للأداء المالي",
+                    perf["status"],
+                    perf["risk"],
+                    perf["action"],
+                    perf["drivers"],
                 )
-                if not ratios_df.empty:
-                    render_ratios_table(ratios_df)
+                st.markdown("#### بطاقة تقييم النسب")
+                render_financial_scorecard(perf["scorecard"])
                 message_box(ratio_model.get("biggest_risk", ""), "warning")
                 message_box(ratio_model.get("next_decision", ""), "info")
 
@@ -472,6 +482,17 @@ if st.session_state.models:
             elif tab_name in ["Break-even", "نقطة التعادل"]:
                 st.subheader("نقطة التعادل وهامش الأمان")
                 st.info(breakeven_model.get("note", ""))
+                be_confidence = build_break_even_confidence(st.session_state.get("expense_mapping", None), None)
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    kpi_card("إيراد التعادل", f"{breakeven_model.get('break_even_revenue', breakeven_model.get('breakeven_revenue', 0)):,.0f}", "الحد الأدنى لتغطية التكاليف")
+                with c2:
+                    kpi_card("هامش الأمان", f"{breakeven_model.get('margin_of_safety', 0)*100:.1f}%", "المسافة قبل التعادل")
+                with c3:
+                    kpi_card("ثقة الحساب", be_confidence.get("label", "—"), f"{be_confidence.get('score', 0)}/100")
+                with c4:
+                    kpi_card("فجوة التعادل", f"{breakeven_model.get('breakeven_gap', 0):,.0f}", "الإيرادات الحالية - التعادل")
+
                 be_insights = build_breakeven_insights(pnl_model, breakeven_model)
                 render_insight_panel(
                     "تحليل التعادل وهامش الأمان",
@@ -482,6 +503,9 @@ if st.session_state.models:
                 )
                 be_summary = breakeven_model.get("summary", pd.DataFrame()).copy()
                 render_breakeven_summary(be_summary)
+                st.markdown("#### اختبار الحساسية")
+                render_sensitivity_table(build_break_even_sensitivity(breakeven_model))
+
                 st.markdown("#### السيناريوهات")
                 scenarios_df = breakeven_model.get("scenarios", pd.DataFrame()).copy()
                 render_simple_financial_table(
@@ -494,6 +518,20 @@ if st.session_state.models:
             elif tab_name in ["Forecast", "السيناريوهات"]:
                 st.subheader("السيناريوهات المستقبلية واختبار الضغط")
                 st.info(models.get("forecast_note", ""))
+                forecast_decision = build_forecast_decision(forecast_model, breakeven_model)
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    kpi_card("أسوأ شهر متوقع", forecast_decision.get("worst_month", "—"), "حسب أقل ربح متوقع")
+                with c2:
+                    kpi_card("أكبر خسارة محتملة", f"{forecast_decision.get('worst_profit', 0):,.0f}", "في سيناريو الضغط")
+                with c3:
+                    kpi_card("الإيراد الآمن شهرياً", f"{forecast_decision.get('safe_revenue', 0):,.0f}", "مشتق من نقطة التعادل")
+                with c4:
+                    kpi_card("قرار التوسع", "مشروط", "مرتبط بالإيراد والتحصيل")
+
+                st.warning(forecast_decision.get("warning", ""))
+                st.info(forecast_decision.get("decision", ""))
+
                 forecast_insights = build_forecast_insights(forecast_model, pnl_model)
                 render_insight_panel(
                     "تحليل السيناريوهات والتوقعات",
