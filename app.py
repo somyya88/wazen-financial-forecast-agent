@@ -62,7 +62,7 @@ if "model_ready" not in st.session_state:
 if "show_setup" not in st.session_state:
     st.session_state.show_setup = False
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.6</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.7</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.session_state.get("models") and st.session_state.get("model_ready", False):
@@ -123,253 +123,257 @@ with st.sidebar:
 # EXECUTIVE_ONLY_VIEW_REMOVED_V116
 # Dashboard is rendered only inside Dashboard tab.
 
-section_header("1. رفع الملفات واكتشاف نوعها")
+if st.session_state.get("show_setup", True):
+    section_header("1. رفع الملفات واكتشاف نوعها")
 
-uploaded_files = st.file_uploader(
-    "ارفع ملفات Excel المالية",
-    type=["xlsx", "xls"],
-    accept_multiple_files=True,
-    key=f"financial_files_uploader_{st.session_state.uploader_key}",
-    help="إذا لم تظهر الملفات بعد الاختيار، اضغطي زر تحديث / مسح النموذج السابق ثم جرّبي السحب والإفلات."
-)
+    uploaded_files = st.file_uploader(
+        "ارفع ملفات Excel المالية",
+        type=["xlsx", "xls"],
+        accept_multiple_files=True,
+        key=f"financial_files_uploader_{st.session_state.uploader_key}",
+        help="إذا لم تظهر الملفات بعد الاختيار، اضغطي زر تحديث / مسح النموذج السابق ثم جرّبي السحب والإفلات."
+    )
 
-if not uploaded_files:
-    st.caption("ملاحظة: بعد اختيار الملفات يجب أن تظهر أسماؤها هنا. إذا لم تظهر، اضغطي زر تحديث / مسح النموذج السابق أعلى الصفحة.")
+    if not uploaded_files:
+        st.caption("ملاحظة: بعد اختيار الملفات يجب أن تظهر أسماؤها هنا. إذا لم تظهر، اضغطي زر تحديث / مسح النموذج السابق أعلى الصفحة.")
 
-business_sector = locals().get("business_sector", "خدمي")
-country = locals().get("country", "السعودية")
-activity = locals().get("activity", locals().get("business_activity", ""))
+    business_sector = locals().get("business_sector", "خدمي")
+    country = locals().get("country", "السعودية")
+    activity = locals().get("activity", locals().get("business_activity", ""))
 
-if uploaded_files:
-    st.success(f"تم اختيار {len(uploaded_files)} ملف/ملفات: " + "، ".join([f.name for f in uploaded_files]))
+    if uploaded_files:
+        st.success(f"تم اختيار {len(uploaded_files)} ملف/ملفات: " + "، ".join([f.name for f in uploaded_files]))
 
-if uploaded_files and st.button("قراءة واكتشاف الملفات"):
-    st.session_state.files = []
-    st.session_state.file_rows = []
+    if uploaded_files and st.button("قراءة واكتشاف الملفات"):
+        st.session_state.files = []
+        st.session_state.file_rows = []
 
-    errors = []
-    for uploaded in uploaded_files:
-        data = read_excel_file(uploaded)
+        errors = []
+        for uploaded in uploaded_files:
+            data = read_excel_file(uploaded)
 
-        if data.get("error"):
+            if data.get("error"):
+                record = {
+                    "file_name": data["file_name"],
+                    "sheets": data.get("sheets", {}),
+                    "primary_df": data.get("primary_df", pd.DataFrame()),
+                    "detected_type": "unknown",
+                    "confidence": 0.0,
+                    "reasons": [data["error"]],
+                    "suggested_role": "ignored",
+                    "selected_role": "ignored",
+                    "read_error": data["error"],
+                    "repaired": False,
+                }
+                st.session_state.files.append(record)
+                errors.append(f"{data['file_name']}: {data['error']}")
+                continue
+
+            detection = detect_file_type(data["primary_df"])
+            role = suggest_role(detection.file_type)
+
             record = {
                 "file_name": data["file_name"],
-                "sheets": data.get("sheets", {}),
-                "primary_df": data.get("primary_df", pd.DataFrame()),
-                "detected_type": "unknown",
-                "confidence": 0.0,
-                "reasons": [data["error"]],
-                "suggested_role": "ignored",
-                "selected_role": "ignored",
-                "read_error": data["error"],
-                "repaired": False,
+                "sheets": data["sheets"],
+                "primary_df": data["primary_df"],
+                "detected_type": detection.file_type,
+                "confidence": detection.confidence,
+                "reasons": detection.reasons,
+                "suggested_role": role,
+                "selected_role": role,
+                "read_error": None,
+                "repaired": data.get("repaired", False),
             }
+            record = apply_role_resolution_to_record(record)
             st.session_state.files.append(record)
-            errors.append(f"{data['file_name']}: {data['error']}")
-            continue
 
-        detection = detect_file_type(data["primary_df"])
-        role = suggest_role(detection.file_type)
+        if errors:
+            st.warning("تم رفع بعض الملفات لكن تعذر قراءة بعضها. راجعي التنبيهات تحت كل ملف.")
+        else:
+            st.success("تمت قراءة الملفات واكتشاف أنواعها.")
 
-        record = {
-            "file_name": data["file_name"],
-            "sheets": data["sheets"],
-            "primary_df": data["primary_df"],
-            "detected_type": detection.file_type,
-            "confidence": detection.confidence,
-            "reasons": detection.reasons,
-            "suggested_role": role,
-            "selected_role": role,
-            "read_error": None,
-            "repaired": data.get("repaired", False),
-        }
-        record = apply_role_resolution_to_record(record)
-        st.session_state.files.append(record)
+    if st.session_state.files:
+        st.session_state.files = [apply_role_resolution_to_record(r) for r in st.session_state.files]
+        section_header("2. تحديد دور كل ملف")
 
-    if errors:
-        st.warning("تم رفع بعض الملفات لكن تعذر قراءة بعضها. راجعي التنبيهات تحت كل ملف.")
-    else:
-        st.success("تمت قراءة الملفات واكتشاف أنواعها.")
+        updated_rows = []
+        for i, record in enumerate(st.session_state.files):
+            with st.container():
+                c1, c2, c3, c4 = st.columns([3, 2, 1, 3])
+                c1.markdown(f"**{record['file_name']}**")
+                c2.markdown(f"`{record['detected_type']}`")
+                c3.markdown(f"{record['confidence']:.0%}")
+                if record.get("role_reason"):
+                    st.caption(record.get("role_reason"))
+                selected = c4.selectbox(
+                    "دور الملف",
+                    SOURCE_ROLES,
+                    index=SOURCE_ROLES.index(record["selected_role"]) if record["selected_role"] in SOURCE_ROLES else 0,
+                    key=f"role_{i}",
+                )
+                record["selected_role"] = selected
+                updated_rows.append({
+                    "file_name": record["file_name"],
+                    "detected_type": record["detected_type"],
+                    "confidence": record["confidence"],
+                    "suggested_role": record["suggested_role"],
+                    "selected_role": selected,
+                })
+                if record.get("repaired"):
+                    message_box("تم إصلاح ملف Excel تلقائياً بسبب مشكلة في ملف الأنماط Styles XML.", "info")
+                if record.get("read_error"):
+                    message_box(record["read_error"], "warning")
+                with st.expander("معاينة أول 5 صفوف"):
+                    if record["primary_df"].empty:
+                        st.info("لا توجد بيانات قابلة للعرض لهذا الملف.")
+                    else:
+                        st.dataframe(record["primary_df"].head(), use_container_width=True)
 
-if st.session_state.files:
-    st.session_state.files = [apply_role_resolution_to_record(r) for r in st.session_state.files]
-    section_header("2. تحديد دور كل ملف")
+        st.session_state.file_rows = updated_rows
 
-    updated_rows = []
-    for i, record in enumerate(st.session_state.files):
-        with st.container():
-            c1, c2, c3, c4 = st.columns([3, 2, 1, 3])
-            c1.markdown(f"**{record['file_name']}**")
-            c2.markdown(f"`{record['detected_type']}`")
-            c3.markdown(f"{record['confidence']:.0%}")
-            if record.get("role_reason"):
-                st.caption(record.get("role_reason"))
-            selected = c4.selectbox(
-                "دور الملف",
-                SOURCE_ROLES,
-                index=SOURCE_ROLES.index(record["selected_role"]) if record["selected_role"] in SOURCE_ROLES else 0,
-                key=f"role_{i}",
-            )
-            record["selected_role"] = selected
-            updated_rows.append({
-                "file_name": record["file_name"],
-                "detected_type": record["detected_type"],
-                "confidence": record["confidence"],
-                "suggested_role": record["suggested_role"],
-                "selected_role": selected,
-            })
-            if record.get("repaired"):
-                message_box("تم إصلاح ملف Excel تلقائياً بسبب مشكلة في ملف الأنماط Styles XML.", "info")
-            if record.get("read_error"):
-                message_box(record["read_error"], "warning")
-            with st.expander("معاينة أول 5 صفوف"):
-                if record["primary_df"].empty:
-                    st.info("لا توجد بيانات قابلة للعرض لهذا الملف.")
-                else:
-                    st.dataframe(record["primary_df"].head(), use_container_width=True)
+        role_warnings = []
+        official_revenue_count = sum(1 for r in updated_rows if r["selected_role"] == "official_revenue_source")
+        if official_revenue_count > 1:
+            role_warnings.append("تم اختيار أكثر من مصدر رسمي للإيرادات. يجب اختيار ملف واحد فقط.")
+        elif official_revenue_count == 0:
+            role_warnings.append("لم يتم اختيار مصدر رسمي للإيرادات بعد.")
 
-    st.session_state.file_rows = updated_rows
+        revenue_like_count = sum(1 for r in updated_rows if r["detected_type"] in ["monthly_sales_wide", "item_sales", "invoice_sales", "trial_balance"])
+        if revenue_like_count > 1:
+            role_warnings.append("تم اكتشاف أكثر من ملف مرتبط بالإيرادات. لن يتم جمعها تلقائياً.")
 
-    role_warnings = []
-    official_revenue_count = sum(1 for r in updated_rows if r["selected_role"] == "official_revenue_source")
-    if official_revenue_count > 1:
-        role_warnings.append("تم اختيار أكثر من مصدر رسمي للإيرادات. يجب اختيار ملف واحد فقط.")
-    elif official_revenue_count == 0:
-        role_warnings.append("لم يتم اختيار مصدر رسمي للإيرادات بعد.")
+        for w in role_warnings:
+            message_box(w, "warning")
 
-    revenue_like_count = sum(1 for r in updated_rows if r["detected_type"] in ["monthly_sales_wide", "item_sales", "invoice_sales", "trial_balance"])
-    if revenue_like_count > 1:
-        role_warnings.append("تم اكتشاف أكثر من ملف مرتبط بالإيرادات. لن يتم جمعها تلقائياً.")
+        section_header("3. تأكيد فترة التحليل")
+        st.caption("سبب البطء المحتمل: هذه المرحلة تبني قراءة أولية للإيرادات والمصاريف وتجهز جدول التصنيف. بعد V11.7 لا تُعاد هذه المرحلة بعد بناء النموذج إلا عند تفعيل الإعداد.")
 
-    for w in role_warnings:
-        message_box(w, "warning")
+        readable_files_preview = [r for r in st.session_state.files if not r.get("read_error")]
+        revenue_preview_record = next((r for r in readable_files_preview if r["selected_role"] == "official_revenue_source"), None)
+        expense_preview_record = next((r for r in readable_files_preview if r["selected_role"] == "official_expense_source"), None)
 
-    section_header("3. تأكيد فترة التحليل")
+        preview_revenue_model = build_revenue_model(revenue_preview_record, revenue_definition) if revenue_preview_record else None
+        preview_expense_model = build_expense_model(expense_preview_record, preview_revenue_model.get("total_revenue", 0) if preview_revenue_model else 0) if expense_preview_record else None
 
-    readable_files_preview = [r for r in st.session_state.files if not r.get("read_error")]
-    revenue_preview_record = next((r for r in readable_files_preview if r["selected_role"] == "official_revenue_source"), None)
-    expense_preview_record = next((r for r in readable_files_preview if r["selected_role"] == "official_expense_source"), None)
+        revenue_months = months_from_revenue_model(preview_revenue_model)
+        expense_months = months_from_expense_model(preview_expense_model)
+        suggested_months = common_months(revenue_months, expense_months)
 
-    preview_revenue_model = build_revenue_model(revenue_preview_record, revenue_definition) if revenue_preview_record else None
-    preview_expense_model = build_expense_model(expense_preview_record, preview_revenue_model.get("total_revenue", 0) if preview_revenue_model else 0) if expense_preview_record else None
+        st.markdown(f"**شهور الإيرادات المكتشفة:** {', '.join(revenue_months) if revenue_months else 'غير متاح'}")
+        st.markdown(f"**شهور المصاريف المكتشفة:** {', '.join(expense_months) if expense_months else 'غير متاح'}")
+        st.markdown(f"**الفترة المقترحة للتحليل:** {', '.join(suggested_months) if suggested_months else 'غير متاح'}")
 
-    revenue_months = months_from_revenue_model(preview_revenue_model)
-    expense_months = months_from_expense_model(preview_expense_model)
-    suggested_months = common_months(revenue_months, expense_months)
-
-    st.markdown(f"**شهور الإيرادات المكتشفة:** {', '.join(revenue_months) if revenue_months else 'غير متاح'}")
-    st.markdown(f"**شهور المصاريف المكتشفة:** {', '.join(expense_months) if expense_months else 'غير متاح'}")
-    st.markdown(f"**الفترة المقترحة للتحليل:** {', '.join(suggested_months) if suggested_months else 'غير متاح'}")
-
-    selected_months = st.multiselect(
-        "اعتماد شهور التحليل",
-        options=suggested_months or revenue_months or expense_months,
-        default=st.session_state.selected_months or suggested_months or revenue_months or expense_months,
-        help="الإيجنت يقرأ الشهور تلقائياً، لكن يجب اعتماد الفترة لتجنب دخول شهر غير مكتمل."
-    )
-    st.session_state.selected_months = selected_months
-
-    if revenue_months and expense_months and set(revenue_months) != set(expense_months):
-        message_box("يوجد اختلاف بين شهور الإيرادات والمصاريف. تم اقتراح الشهور المشتركة فقط.", "warning")
-
-    section_header("4. تصنيف المصاريف المعتمد")
-
-    if preview_expense_model and not preview_expense_model.get("expense_long", pd.DataFrame()).empty:
-        # Stable account signature: regenerate suggested mapping only when the expense accounts change.
-        initial_mapping = apply_smart_classification(build_expense_mapping(preview_expense_model, industry), use_openai=True)
-        current_signature = "|".join(initial_mapping["account_name"].astype(str).tolist())
-
-        if st.session_state.mapping_signature != current_signature:
-            st.session_state.expense_mapping = initial_mapping.copy()
-            st.session_state.expense_mapping_saved = False
-            st.session_state.mapping_signature = current_signature
-
-        st.info("استخدم الفلاتر للوصول إلى البنود المطلوبة، ثم عدّل التصنيف أو نوع التكلفة واضغط حفظ. التصنيف يستخدم OpenAI عند توفر الربط، ثم يرتب الحسابات للتدقيق حسب قائمة الدخل: تشغيل مباشر، إداري، تسويقي، تمويلي، أخرى. يجب مراجعة التصنيف قبل اعتماد النموذج.")
-
-        c_map1, c_map2, c_map3 = st.columns([1, 1, 2])
-        with c_map1:
-            if st.button("إعادة توليد التصنيف بالذكاء الصناعي"):
-                st.session_state.expense_mapping = apply_smart_classification(initial_mapping.copy(), use_openai=True)
-                st.session_state.expense_mapping_saved = False
-                st.warning("تمت إعادة توليد التصنيف بالذكاء الصناعي. يرجى مراجعة البنود ثم حفظ التصنيف.")
-        with c_map2:
-            if st.session_state.expense_mapping_saved:
-                st.success("تم حفظ التصنيف")
-            else:
-                st.warning("التصنيف غير محفوظ بعد")
-
-        edited_mapping = render_expense_mapping_editor(
-            st.session_state.expense_mapping,
-            key_prefix="expense_mapping_main"
+        selected_months = st.multiselect(
+            "اعتماد شهور التحليل",
+            options=suggested_months or revenue_months or expense_months,
+            default=st.session_state.selected_months or suggested_months or revenue_months or expense_months,
+            help="الإيجنت يقرأ الشهور تلقائياً، لكن يجب اعتماد الفترة لتجنب دخول شهر غير مكتمل."
         )
-        save_mapping = st.button("حفظ تصنيف المصاريف المعتمد", type="primary", key="save_expense_mapping_filtered")
+        st.session_state.selected_months = selected_months
 
-        if save_mapping:
-            st.session_state.expense_mapping = edited_mapping.copy()
-            st.session_state.expense_mapping_saved = True
-            st.success("تم حفظ تصنيف المصاريف المعتمد. يمكن الآن بناء النموذج المالي.")
+        if revenue_months and expense_months and set(revenue_months) != set(expense_months):
+            message_box("يوجد اختلاف بين شهور الإيرادات والمصاريف. تم اقتراح الشهور المشتركة فقط.", "warning")
 
-        st.caption("ملاحظة: التعديلات داخل الجدول لا تدخل في الحسابات إلا بعد الضغط على زر الحفظ.")
-    else:
-        message_box("لا توجد مصاريف كافية لبناء تصنيف المصاريف.", "warning")
+        section_header("4. تصنيف المصاريف المعتمد")
 
-    if preview_expense_model is not None and not st.session_state.expense_mapping_saved:
-        message_box("يجب حفظ تصنيف المصاريف قبل بناء النموذج حتى لا يرجع التصنيف للتصنيف المقترح.", "warning")
+        if preview_expense_model and not preview_expense_model.get("expense_long", pd.DataFrame()).empty:
+            # Stable account signature: regenerate suggested mapping only when the expense accounts change.
+            initial_mapping = apply_smart_classification(build_expense_mapping(preview_expense_model, industry), use_openai=True)
+            current_signature = "|".join(initial_mapping["account_name"].astype(str).tolist())
 
-    if st.button("بناء النموذج المالي الأولي", disabled=(preview_expense_model is not None and not st.session_state.expense_mapping_saved)):
-        readable_files = [r for r in st.session_state.files if not r.get("read_error")]
-        revenue_record = next((r for r in readable_files if r["selected_role"] == "official_revenue_source"), None)
-        expense_record = next((r for r in readable_files if r["selected_role"] == "official_expense_source"), None)
-        tb_candidates = [r for r in readable_files if r["selected_role"] == "validation_source" and r["detected_type"] == "trial_balance"]
-        tb_record = next((r for r in tb_candidates if "ميزان" in r.get("file_name", "") or "trial" in r.get("file_name", "").lower()), None)
-        tb_record = tb_record or (tb_candidates[0] if tb_candidates else None)
+            if st.session_state.mapping_signature != current_signature:
+                st.session_state.expense_mapping = initial_mapping.copy()
+                st.session_state.expense_mapping_saved = False
+                st.session_state.mapping_signature = current_signature
 
-        revenue_model = build_revenue_model(revenue_record, revenue_definition) if revenue_record else None
-        expense_model = build_expense_model(expense_record, revenue_model.get("total_revenue", 0) if revenue_model else 0) if expense_record else None
+            st.info("استخدم الفلاتر للوصول إلى البنود المطلوبة، ثم عدّل التصنيف أو نوع التكلفة واضغط حفظ. التصنيف يستخدم OpenAI عند توفر الربط، ثم يرتب الحسابات للتدقيق حسب قائمة الدخل: تشغيل مباشر، إداري، تسويقي، تمويلي، أخرى. يجب مراجعة التصنيف قبل اعتماد النموذج.")
 
-        # Apply user-approved expense mapping before period filtering and financial modeling.
-        if expense_model and st.session_state.expense_mapping is not None and st.session_state.expense_mapping_saved:
-            expense_model = apply_expense_mapping(expense_model, st.session_state.expense_mapping)
+            c_map1, c_map2, c_map3 = st.columns([1, 1, 2])
+            with c_map1:
+                if st.button("إعادة توليد التصنيف بالذكاء الصناعي"):
+                    st.session_state.expense_mapping = apply_smart_classification(initial_mapping.copy(), use_openai=True)
+                    st.session_state.expense_mapping_saved = False
+                    st.warning("تمت إعادة توليد التصنيف بالذكاء الصناعي. يرجى مراجعة البنود ثم حفظ التصنيف.")
+            with c_map2:
+                if st.session_state.expense_mapping_saved:
+                    st.success("تم حفظ التصنيف")
+                else:
+                    st.warning("التصنيف غير محفوظ بعد")
 
-        # Apply confirmed analysis period.
-        confirmed_months = st.session_state.selected_months
-        revenue_model = filter_revenue_model(revenue_model, confirmed_months) if revenue_model else None
-        expense_model = filter_expense_model(expense_model, confirmed_months) if expense_model else None
+            edited_mapping = render_expense_mapping_editor(
+                st.session_state.expense_mapping,
+                key_prefix="expense_mapping_main"
+            )
+            save_mapping = st.button("حفظ تصنيف المصاريف المعتمد", type="primary", key="save_expense_mapping_filtered")
 
-        revenue_total = revenue_model.get("total_revenue", 0) if revenue_model else 0
-        if expense_model and revenue_total:
-            expense_model["expense_ratio"] = expense_model.get("total_expenses", 0) / revenue_total
+            if save_mapping:
+                st.session_state.expense_mapping = edited_mapping.copy()
+                st.session_state.expense_mapping_saved = True
+                st.success("تم حفظ تصنيف المصاريف المعتمد. يمكن الآن بناء النموذج المالي.")
 
-        tb_model = parse_trial_balance(tb_record) if tb_record else None
-        financial_model = build_basic_financial_model(revenue_model, expense_model)
-        validation_checks = validate_project(updated_rows, revenue_model, expense_model, tb_model)
+            st.caption("ملاحظة: التعديلات داخل الجدول لا تدخل في الحسابات إلا بعد الضغط على زر الحفظ.")
+        else:
+            message_box("لا توجد مصاريف كافية لبناء تصنيف المصاريف.", "warning")
 
-        pnl_model = build_pnl(revenue_model, expense_model, tb_model)
-        monthly_pnl_model = monthly_pnl(revenue_model, expense_model)
-        ratio_model = build_ratios(pnl_model, expense_model)
-        breakeven_model = build_breakeven(pnl_model, expense_model)
-        forecast_model, forecast_note = build_forecast(monthly_pnl_model)
-        glossary_model = build_glossary()
+        if preview_expense_model is not None and not st.session_state.expense_mapping_saved:
+            message_box("يجب حفظ تصنيف المصاريف قبل بناء النموذج حتى لا يرجع التصنيف للتصنيف المقترح.", "warning")
 
-        st.session_state.models = {
-            "revenue_model": revenue_model,
-            "expense_model": expense_model,
-            "tb_model": tb_model,
-            "financial_model": financial_model,
-            "validation_checks": validation_checks,
-            "pnl_model": pnl_model,
-            "monthly_pnl_model": monthly_pnl_model,
-            "ratio_model": ratio_model,
-            "breakeven_model": breakeven_model,
-            "forecast_model": forecast_model,
-            "forecast_note": forecast_note,
-            "glossary_model": glossary_model,
-            "confirmed_months": confirmed_months,
-            "expense_mapping": st.session_state.expense_mapping,
-        }
-        st.session_state.model_ready = True
-        st.session_state.show_setup = False
-        st.success("تم بناء النموذج المالي الأولي. انتقل إلى تبويب Dashboard لعرض لوحة المؤشرات التنفيذية.")
+        if st.button("بناء النموذج المالي الأولي", disabled=(preview_expense_model is not None and not st.session_state.expense_mapping_saved)):
+            readable_files = [r for r in st.session_state.files if not r.get("read_error")]
+            revenue_record = next((r for r in readable_files if r["selected_role"] == "official_revenue_source"), None)
+            expense_record = next((r for r in readable_files if r["selected_role"] == "official_expense_source"), None)
+            tb_candidates = [r for r in readable_files if r["selected_role"] == "validation_source" and r["detected_type"] == "trial_balance"]
+            tb_record = next((r for r in tb_candidates if "ميزان" in r.get("file_name", "") or "trial" in r.get("file_name", "").lower()), None)
+            tb_record = tb_record or (tb_candidates[0] if tb_candidates else None)
+
+            revenue_model = build_revenue_model(revenue_record, revenue_definition) if revenue_record else None
+            expense_model = build_expense_model(expense_record, revenue_model.get("total_revenue", 0) if revenue_model else 0) if expense_record else None
+
+            # Apply user-approved expense mapping before period filtering and financial modeling.
+            if expense_model and st.session_state.expense_mapping is not None and st.session_state.expense_mapping_saved:
+                expense_model = apply_expense_mapping(expense_model, st.session_state.expense_mapping)
+
+            # Apply confirmed analysis period.
+            confirmed_months = st.session_state.selected_months
+            revenue_model = filter_revenue_model(revenue_model, confirmed_months) if revenue_model else None
+            expense_model = filter_expense_model(expense_model, confirmed_months) if expense_model else None
+
+            revenue_total = revenue_model.get("total_revenue", 0) if revenue_model else 0
+            if expense_model and revenue_total:
+                expense_model["expense_ratio"] = expense_model.get("total_expenses", 0) / revenue_total
+
+            tb_model = parse_trial_balance(tb_record) if tb_record else None
+            financial_model = build_basic_financial_model(revenue_model, expense_model)
+            validation_checks = validate_project(updated_rows, revenue_model, expense_model, tb_model)
+
+            pnl_model = build_pnl(revenue_model, expense_model, tb_model)
+            monthly_pnl_model = monthly_pnl(revenue_model, expense_model)
+            ratio_model = build_ratios(pnl_model, expense_model)
+            breakeven_model = build_breakeven(pnl_model, expense_model)
+            forecast_model, forecast_note = build_forecast(monthly_pnl_model)
+            glossary_model = build_glossary()
+
+            st.session_state.models = {
+                "revenue_model": revenue_model,
+                "expense_model": expense_model,
+                "tb_model": tb_model,
+                "financial_model": financial_model,
+                "validation_checks": validation_checks,
+                "pnl_model": pnl_model,
+                "monthly_pnl_model": monthly_pnl_model,
+                "ratio_model": ratio_model,
+                "breakeven_model": breakeven_model,
+                "forecast_model": forecast_model,
+                "forecast_note": forecast_note,
+                "glossary_model": glossary_model,
+                "confirmed_months": confirmed_months,
+                "expense_mapping": st.session_state.expense_mapping,
+            }
+            st.session_state.model_ready = True
+            st.session_state.show_setup = False
+            st.success("تم بناء النموذج المالي الأولي. انتقل إلى تبويب Dashboard لعرض لوحة المؤشرات التنفيذية.")
+        st.rerun()
+
 
 if st.session_state.models:
     models = st.session_state.models
@@ -385,46 +389,7 @@ if st.session_state.models:
     glossary_model = models.get("glossary_model", pd.DataFrame())
     expense_mapping_model = models.get("expense_mapping", pd.DataFrame())
 
-    section_header("3. فحص جودة البيانات")
-
-    for check in validation_checks:
-        if check.get("check") in ["Revenue Notes", "Expense Notes", "Revenue Value", "Expense Value", "Revenue Source", "P&L Source", "Revenue vs Trial Balance", "Source Roles", "Purchases from Trial Balance"]:
-            continue
-        message_box(f"**{check['check']}** — {check['message']}", check["level"])
-
-    exec_kpis = build_executive_kpis(pnl_model, expense_model)
-    performance_scorecard = build_financial_performance_scorecard(pnl_model, breakeven_model)
-    section_header("5. لوحة المؤشرات التنفيذية")
-    if not pnl_model or float(pnl_model.get("revenue", 0) or 0) == 0:
-        st.error("لا تعرض اللوحة أرقاماً صفرية لأن قائمة الدخل لم تُبنَ من ميزان المراجعة. راجع دور الملفات وتأكد أن ملف ميزان المراجعة مصنف كـ validation_source ونوعه trial_balance.")
-        st.stop()
-    st.caption(f"قطاع التحليل: {business_sector} | البلد: {country} | طبيعة النشاط: {activity}")
-
-    exec_kpis = build_executive_kpis(pnl_model, expense_model)
-    performance_scorecard = build_financial_performance_scorecard(pnl_model, breakeven_model)
-    dash_diag = build_owner_diagnosis(pnl_model, breakeven_model, expense_model, business_sector, country, activity)
-
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        kpi_card("الإيرادات التشغيلية", f"{exec_kpis.get('operating_revenue', 0):,.0f}", "إيراد النشاط الأساسي")
-    with c2:
-        kpi_card("صافي الربح", f"{exec_kpis.get('net_profit', 0):,.0f}", f"هامش صافي الربح {exec_kpis.get('net_margin', 0)*100:.1f}%")
-    with c3:
-        kpi_card("هامش الأمان", f"{breakeven_model.get('margin_of_safety', 0)*100:.1f}%", "المسافة قبل نقطة التعادل")
-    with c4:
-        kpi_card("مؤشر الربحية", f"{performance_scorecard.get('score', 0):.0f}/100", "لا يشمل السيولة والتحصيل")
-
-    st.markdown(f"""
-    <div class="executive-brief compact">
-        <div class="brief-title">الخلاصة خلال 60 ثانية</div>
-        <div class="brief-text">{dash_diag['situation']}</div>
-        <div class="brief-action"><strong>الإجراء الأهم الآن:</strong> {dash_diag['action']}</div>
-        <div class="brief-subtext"><strong>مؤشر المتابعة:</strong> {dash_diag['next_kpi']}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.caption("للتفاصيل: راجع صفحات تحليل النسب، كفاءة الإنفاق، نقطة التعادل، والسيناريوهات.")
-
+    # PRE_TABS_SUMMARY_REMOVED_V117
     active_tabs = tabs_for_mode(analysis_mode)
     tabs = st.tabs(active_tabs)
 

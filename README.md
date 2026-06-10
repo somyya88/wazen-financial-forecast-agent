@@ -1,14 +1,11 @@
-# Wazen CFO Intelligence Agent V11.6
+# Wazen CFO Intelligence Agent V11.7
 
-## Fixes
-- Removed duplicate executive dashboard rendering.
-- Executive cards and summary now appear only inside Dashboard tab.
-- Setup page remains focused on upload, file roles, period, mapping, and model build.
-- Removed misleading “what this reading does not cover” table.
-- Clarified profitability score is not a full financial health score.
+## Performance & UX fixes
+- Setup phase is hidden after model build.
+- Upload / period confirmation / expense mapping do not re-render after the model is ready unless setup is enabled.
+- Removed duplicate pre-tabs dashboard and executive summary.
+- Added rerun after model build to move directly to the analysis view.
+- Dashboard appears only inside the Dashboard tab.
 
-## Next
-Build a dedicated Liquidity & Collections page using:
-- Bank statements
-- AR aging
-- AP aging
+## Why it was slow
+Streamlit reruns the entire script on each interaction. Before V11.7, the app rebuilt preview revenue, preview expense, expense mapping, validation, and dashboard together on each interaction.
