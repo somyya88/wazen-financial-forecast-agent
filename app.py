@@ -12,6 +12,7 @@ from validation_engine import validate_project
 from financial_model import build_basic_financial_model
 from period_engine import months_from_revenue_model, months_from_expense_model, common_months, filter_revenue_model, filter_expense_model
 from revenue_insight_engine import build_revenue_insights
+from decision_quality_engine import build_formula_table, build_decision_action_plan, build_owner_ratios_summary, data_visibility_status, build_revenue_decision_table
 from sector_action_engine import build_sector_safety_scorecard, build_top_5_actions, build_scorecard_summary
 from executive_diagnosis_engine import build_owner_diagnosis, build_professional_actions
 from sector_benchmarks import SECTOR_OPTIONS, COUNTRY_OPTIONS, get_sector_config, sector_benchmark_table, sector_notes_df
@@ -59,7 +60,7 @@ if "model_ready" not in st.session_state:
 if "show_setup" not in st.session_state:
     st.session_state.show_setup = False
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.1</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.2</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.session_state.get("models") and st.session_state.get("model_ready", False):
@@ -491,6 +492,9 @@ if st.session_state.models:
                         ],
                     )
 
+                    st.markdown("#### مؤشرات جودة الإيراد")
+                    render_business_explanation_table(build_revenue_decision_table(revenue_monthly))
+
                     line_chart(revenue_monthly, "month", "revenue", "اتجاه الإيرادات")
                     with st.expander("عرض تفاصيل الإيرادات الشهرية"):
                         render_simple_financial_table(
@@ -562,55 +566,47 @@ if st.session_state.models:
 
             elif tab_name in ["Ratios"]:
                 st.subheader("تحليل النسب المالية")
-                ratios_df = ratio_model.get("ratios", pd.DataFrame())
-                score_explain = explain_performance_score(pnl_model, breakeven_model, business_sector)
-                c1, c2, c3 = st.columns(3)
+
+                summary = build_owner_ratios_summary(pnl_model, breakeven_model, expense_model)
+                m_score = build_financial_performance_scorecard(pnl_model, breakeven_model)
+                safe_score = min(float(m_score.get("score", 0) or 0), 85)
+
+                c1, c2, c3, c4 = st.columns(4)
                 with c1:
-                    kpi_card("مؤشر الأداء والربحية", f"{score_explain['score']}/100", "مبني على الربحية والتكاليف والتعادل")
+                    kpi_card("الربحية المحاسبية", "جيدة" if pnl_model.get("net_profit", 0) > 0 else "تحتاج معالجة", "قراءة من قائمة الدخل")
                 with c2:
-                    kpi_card("أولوية القراءة", "جودة الربح", "هل الربح قابل للاستمرار؟")
+                    kpi_card("السيولة والتحصيل", "غير محسوبة", "تحتاج كشف بنك وذمم")
                 with c3:
-                    kpi_card("الإجراء المطلوب", "تحليل مسببات الربح", "تكلفة الإيراد + المصاريف + التعادل")
-                st.info(score_explain["note"])
+                    kpi_card("ثقة القراءة", "متوسطة", "لأن السيولة والذمم غير مرفقة")
+                with c4:
+                    kpi_card("مؤشر الربحية", f"{safe_score:.0f}/100", "ليس مؤشراً للصحة المالية الكاملة")
+
+                st.warning("تنبيه مهم: هذه الصفحة تقيس الربحية والتكاليف ونقطة التعادل فقط. لا تحكم على السيولة أو التحصيل أو الديون دون ملفات إضافية.")
+
                 render_insight_panel(
-                    "تشخيص الأداء المالي",
-                    "قراءة مبنية على الهوامش والتكاليف والتعادل",
-                    "المخاطر لا تظهر فقط من انخفاض الربح؛ بل من ارتفاع المصاريف أو تكلفة الإيراد أو ضعف هامش الأمان.",
-                    score_explain["recommendation"],
-                    ["المؤشر ليس حكماً على السيولة أو التحصيل.", "الهدف منه تحديد أولويات الإدارة الداخلية.", "أي توصية توسع لا تُعتمد قبل ضبط المصاريف والتحصيل وجودة البيانات."],
+                    summary["title"],
+                    summary["risk"],
+                    "الخطر الحقيقي لا يظهر من صافي الربح وحده؛ قد تكون الشركة رابحة محاسبياً لكنها مضغوطة نقدياً إذا تأخر التحصيل أو زادت الالتزامات الثابتة.",
+                    summary["action"],
+                    [
+                        "أي قراءة ربحية يجب فصلها عن قراءة السيولة.",
+                        "لا تعتمد قرار توسع قبل بناء توقع نقدي.",
+                        "كل توصية يجب أن ترتبط برقم ومسؤول وKPI."
+                    ],
                 )
-                st.markdown("#### معايير السلامة حسب القطاع")
+
+                st.markdown("#### كيف تم احتساب المؤشرات؟")
                 render_business_explanation_table(
-                    sector_notes_df(business_sector, country, activity)
+                    build_formula_table(pnl_model, breakeven_model, business_sector)
                 )
+
+                st.markdown("#### خطة العمل التنفيذية")
                 render_business_explanation_table(
-                    sector_benchmark_table(business_sector),
-                    percent_cols=["الحد الآمن", "حد المراقبة"]
+                    build_decision_action_plan(pnl_model, breakeven_model, expense_model, revenue_model.get("monthly_revenue", pd.DataFrame()) if revenue_model else pd.DataFrame())
                 )
 
-                st.markdown("#### التشخيص التنفيذي لصاحب العمل")
-                diagnosis = build_owner_diagnosis(pnl_model, breakeven_model, expense_model, business_sector, country, activity)
-                st.markdown(f"""
-                <div class="executive-diagnosis">
-                    <h3>{diagnosis['issue']}</h3>
-                    <p><strong>ما الذي يحدث؟</strong><br>{diagnosis['situation']}</p>
-                    <p><strong>أين الخطر؟</strong><br>{diagnosis['risk']}</p>
-                    <p><strong>الإجراء العملي المقترح</strong><br>{diagnosis['action']}</p>
-                    <p><strong>المسؤول:</strong> {diagnosis['owner']}</p>
-                    <p><strong>مؤشر المتابعة للشهر القادم:</strong> {diagnosis['next_kpi']}</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-                st.markdown("#### أولويات التنفيذ")
-                render_business_explanation_table(
-                    build_professional_actions(pnl_model, breakeven_model, expense_model, business_sector)
-                )
-
-                st.markdown("#### كيف تم احتساب المؤشر؟")
-                render_business_explanation_table(score_explain["rows"])
-                message_box(ratio_model.get("biggest_risk", ""), "warning")
-                message_box(ratio_model.get("next_decision", ""), "info")
-
+                st.markdown("#### ما الذي لا تغطيه هذه القراءة؟")
+                render_business_explanation_table(data_visibility_status(st.session_state.get("models", {})))
             elif tab_name == "تصنيف المصاريف":
                 st.subheader("تصنيف المصاريف المعتمد")
                 if expense_mapping_model is not None and not expense_mapping_model.empty:
