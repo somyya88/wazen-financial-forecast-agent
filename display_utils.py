@@ -369,7 +369,7 @@ def render_sector_scorecard(df: pd.DataFrame):
     if df is None or df.empty:
         st.info("لا توجد بيانات كافية لبطاقة السلامة القطاعية.")
         return
-    visible = df.drop(columns=[c for c in df.columns if c.startswith("_")], errors="ignore")
+    visible = df.drop(columns=[c for c in df.columns if str(c).startswith("_")], errors="ignore").copy()
     render_html_table(
         visible,
         columns=list(visible.columns),
