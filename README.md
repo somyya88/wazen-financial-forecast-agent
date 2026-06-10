@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V10.1
+# Wazen CFO Intelligence Agent V10.2
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
 
@@ -272,3 +272,10 @@ Only one file can be selected as the official revenue source.
   - one primary action
   - one next-period KPI
 - Moves detailed reasoning to internal pages instead of overwhelming the first page.
+
+## V10.2 additions
+
+- Adds true Executive View mode after the model is built.
+- The first page no longer shows upload, file-role, data-quality, and mapping workflow by default.
+- Setup and validation details are hidden behind the "إظهار الإعداد والتحقق" toggle.
+- Business owner sees only the concise executive dashboard first.

@@ -52,9 +52,24 @@ if "mapping_signature" not in st.session_state:
     st.session_state.mapping_signature = None
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
+if "model_ready" not in st.session_state:
+    st.session_state.model_ready = bool(st.session_state.get("models"))
+if "show_setup" not in st.session_state:
+    st.session_state.show_setup = False
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V10.1</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V10.2</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
+
+if st.session_state.get("models") and st.session_state.get("model_ready", False):
+    st.session_state.show_setup = st.toggle(
+        "إظهار الإعداد والتحقق",
+        value=st.session_state.get("show_setup", False),
+        key="show_setup_toggle",
+        help="فعّل هذا الخيار فقط عند الحاجة لتعديل الملفات أو التصنيف أو فترة التحليل."
+    )
+else:
+    st.session_state.show_setup = True
+
 
 if st.button("تحديث / مسح النموذج السابق"):
     st.session_state.files = []
@@ -64,6 +79,8 @@ if st.button("تحديث / مسح النموذج السابق"):
     st.session_state.expense_mapping = None
     st.session_state.expense_mapping_saved = False
     st.session_state.mapping_signature = None
+    st.session_state.model_ready = False
+    st.session_state.show_setup = True
     st.session_state.uploader_key += 1
     st.rerun()
 
@@ -96,6 +113,49 @@ with st.sidebar:
     industry = activity
     analysis_mode = st.selectbox("نوع التحليل", ANALYSIS_MODES)
     revenue_definition = st.selectbox("تعريف الإيراد", REVENUE_DEFINITIONS)
+
+
+# EXECUTIVE_ONLY_VIEW_V102
+if st.session_state.get("models") and st.session_state.get("model_ready", False) and not st.session_state.get("show_setup", False):
+    models = st.session_state.models
+    revenue_model = models.get("revenue_model")
+    expense_model = models.get("expense_model")
+    pnl_model = models.get("pnl_model", {})
+    breakeven_model = models.get("breakeven_model", {})
+    ratio_model = models.get("ratio_model", {})
+    business_sector = locals().get("business_sector", "خدمي")
+    country = locals().get("country", "السعودية")
+    activity = locals().get("activity", locals().get("industry", ""))
+
+    section_header("لوحة المؤشرات التنفيذية")
+    st.caption(f"قطاع التحليل: {business_sector} | البلد: {country} | طبيعة النشاط: {activity}")
+
+    exec_kpis = build_executive_kpis(pnl_model, expense_model)
+    performance_scorecard = build_financial_performance_scorecard(pnl_model, breakeven_model)
+    dash_diag = build_owner_diagnosis(pnl_model, breakeven_model, expense_model, business_sector, country, activity)
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        kpi_card("الإيرادات التشغيلية", f"{exec_kpis.get('operating_revenue', 0):,.0f}", "إيراد النشاط الأساسي")
+    with c2:
+        kpi_card("صافي الربح", f"{exec_kpis.get('net_profit', 0):,.0f}", f"هامش صافي الربح {exec_kpis.get('net_margin', 0)*100:.1f}%")
+    with c3:
+        kpi_card("هامش الأمان", f"{breakeven_model.get('margin_of_safety', 0)*100:.1f}%", "المسافة قبل نقطة التعادل")
+    with c4:
+        kpi_card("مؤشر الأداء والربحية", f"{performance_scorecard.get('score', 0):.0f}/100", "مؤشر مبني على الهوامش والتعادل")
+
+    st.markdown(f"""
+    <div class="executive-brief compact">
+        <div class="brief-title">الخلاصة خلال 60 ثانية</div>
+        <div class="brief-text">{dash_diag['situation']}</div>
+        <div class="brief-action"><strong>الإجراء الأهم الآن:</strong> {dash_diag['action']}</div>
+        <div class="brief-subtext"><strong>مؤشر المتابعة:</strong> {dash_diag['next_kpi']}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.info("للاطلاع على الإعدادات، جودة البيانات، التصنيف، والجداول التفصيلية فعّل خيار: إظهار الإعداد والتحقق أعلى الصفحة.")
+    st.stop()
+
 
 section_header("1. رفع الملفات واكتشاف نوعها")
 
@@ -335,6 +395,8 @@ if st.session_state.files:
             "confirmed_months": confirmed_months,
             "expense_mapping": st.session_state.expense_mapping,
         }
+        st.session_state.model_ready = True
+        st.session_state.show_setup = False
         st.success("تم بناء النموذج المالي الأولي.")
 
 if st.session_state.models:
