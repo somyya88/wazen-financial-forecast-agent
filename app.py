@@ -23,6 +23,7 @@ from cards import kpi_card, section_header, message_box
 from charts import line_chart, bar_chart, pie_chart
 from data_quality_engine import build_source_reconciliation, build_data_quality_score
 from insights_engine import build_ratio_insights, build_breakeven_insights, build_forecast_insights, build_expense_insights, build_forecast_assumptions_table
+from mapping_ui import render_expense_mapping_editor
 from display_utils import render_pnl_statement, render_monthly_profitability, render_ratios_table, render_simple_financial_table, sort_month_df, render_insight_panel, render_breakeven_summary, render_reconciliation_table
 from excel_pack import build_excel_pack
 
@@ -46,7 +47,7 @@ if "mapping_signature" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.1</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.2</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.button("تحديث / مسح النموذج السابق"):
@@ -219,7 +220,7 @@ if st.session_state.files:
     if revenue_months and expense_months and set(revenue_months) != set(expense_months):
         message_box("يوجد اختلاف بين شهور الإيرادات والمصاريف. تم اقتراح الشهور المشتركة فقط.", "warning")
 
-    section_header("4. تصنيف المصاريف Expense Mapping")
+    section_header("4. تصنيف المصاريف المعتمد")
 
     if preview_expense_model and not preview_expense_model.get("expense_long", pd.DataFrame()).empty:
         # Stable account signature: regenerate suggested mapping only when the expense accounts change.
@@ -231,7 +232,7 @@ if st.session_state.files:
             st.session_state.expense_mapping_saved = False
             st.session_state.mapping_signature = current_signature
 
-        st.info("عدّلي التصنيف ثم اضغطي **حفظ Expense Mapping**. زر إعادة التوليد يمسح تعديلاتك ويعيد التصنيف الآلي فقط.")
+        st.info("استخدم الفلاتر للوصول إلى البنود المطلوبة، ثم عدّل التصنيف أو نوع التكلفة واضغط حفظ. زر إعادة التوليد يمسح التعديلات ويعيد التصنيف الآلي فقط.")
 
         c_map1, c_map2, c_map3 = st.columns([1, 1, 2])
         with c_map1:
@@ -245,35 +246,23 @@ if st.session_state.files:
             else:
                 st.warning("التصنيف غير محفوظ بعد")
 
-        with st.form("expense_mapping_form"):
-            edited_mapping = st.data_editor(
-                st.session_state.expense_mapping,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "account_name": st.column_config.TextColumn("الحساب", disabled=True),
-                    "current_category": st.column_config.TextColumn("التصنيف الحالي", disabled=True),
-                    "user_category": st.column_config.SelectboxColumn("التصنيف المعتمد", options=CATEGORY_OPTIONS, required=True),
-                    "cost_behavior": st.column_config.SelectboxColumn("نوع التكلفة", options=COST_BEHAVIOR_OPTIONS, required=True),
-                    "amount": st.column_config.NumberColumn("المبلغ", format="%.2f", disabled=True),
-                },
-                key="expense_mapping_editor_v83",
-                num_rows="fixed",
-            )
-
-            save_mapping = st.form_submit_button("حفظ Expense Mapping")
+        edited_mapping = render_expense_mapping_editor(
+            st.session_state.expense_mapping,
+            key_prefix="expense_mapping_main"
+        )
+        save_mapping = st.button("حفظ تصنيف المصاريف المعتمد", type="primary", key="save_expense_mapping_filtered")
 
         if save_mapping:
             st.session_state.expense_mapping = edited_mapping.copy()
             st.session_state.expense_mapping_saved = True
-            st.success("تم حفظ Expense Mapping. يمكنك الآن بناء النموذج المالي.")
+            st.success("تم حفظ تصنيف المصاريف المعتمد. يمكن الآن بناء النموذج المالي.")
 
         st.caption("ملاحظة: التعديلات داخل الجدول لا تدخل في الحسابات إلا بعد الضغط على زر الحفظ.")
     else:
-        message_box("لا توجد مصاريف كافية لبناء Expense Mapping.", "warning")
+        message_box("لا توجد مصاريف كافية لبناء تصنيف المصاريف.", "warning")
 
     if preview_expense_model is not None and not st.session_state.expense_mapping_saved:
-        message_box("يجب حفظ Expense Mapping قبل بناء النموذج حتى لا يرجع التصنيف للتصنيف المقترح.", "warning")
+        message_box("يجب حفظ تصنيف المصاريف قبل بناء النموذج حتى لا يرجع التصنيف للتصنيف المقترح.", "warning")
 
     if st.button("بناء النموذج المالي الأولي", disabled=(preview_expense_model is not None and not st.session_state.expense_mapping_saved)):
         readable_files = [r for r in st.session_state.files if not r.get("read_error")]
@@ -437,8 +426,8 @@ if st.session_state.models:
                 message_box(ratio_model.get("biggest_risk", ""), "warning")
                 message_box(ratio_model.get("next_decision", ""), "info")
 
-            elif tab_name == "Expense Mapping":
-                st.subheader("Expense Mapping المعتمد")
+            elif tab_name == "تصنيف المصاريف":
+                st.subheader("تصنيف المصاريف المعتمد")
                 if expense_mapping_model is not None and not expense_mapping_model.empty:
                     st.dataframe(expense_mapping_model, use_container_width=True)
                 else:
