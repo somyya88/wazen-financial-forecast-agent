@@ -62,7 +62,7 @@ if "model_ready" not in st.session_state:
 if "show_setup" not in st.session_state:
     st.session_state.show_setup = False
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.7</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.7.1</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.session_state.get("models") and st.session_state.get("model_ready", False):
@@ -372,8 +372,11 @@ if st.session_state.get("show_setup", True):
             st.session_state.model_ready = True
             st.session_state.show_setup = False
             st.success("تم بناء النموذج المالي الأولي. انتقل إلى تبويب Dashboard لعرض لوحة المؤشرات التنفيذية.")
-        st.rerun()
 
+
+if st.session_state.models and not st.session_state.get("show_setup", True):
+    if st.button("إظهار إعدادات الملفات والتصنيف"):
+        st.session_state.show_setup = True
 
 if st.session_state.models:
     models = st.session_state.models

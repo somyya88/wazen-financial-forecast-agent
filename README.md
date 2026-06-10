@@ -1,11 +1,9 @@
-# Wazen CFO Intelligence Agent V11.7
+# Wazen CFO Intelligence Agent V11.7.1
 
-## Performance & UX fixes
-- Setup phase is hidden after model build.
-- Upload / period confirmation / expense mapping do not re-render after the model is ready unless setup is enabled.
-- Removed duplicate pre-tabs dashboard and executive summary.
-- Added rerun after model build to move directly to the analysis view.
-- Dashboard appears only inside the Dashboard tab.
+## Critical hotfix
+- Removes accidental unconditional `st.rerun()` that caused the app to remain in a loading / greyed-out state.
+- Keeps setup hidden after model build without forcing an infinite rerun loop.
+- Adds a manual button to show setup again when needed.
 
-## Why it was slow
-Streamlit reruns the entire script on each interaction. Before V11.7, the app rebuilt preview revenue, preview expense, expense mapping, validation, and dashboard together on each interaction.
+## Symptom fixed
+The app was staying for several minutes in a faded/disabled Streamlit state around Expense Mapping / model build.
