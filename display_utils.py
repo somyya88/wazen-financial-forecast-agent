@@ -363,3 +363,21 @@ def render_business_explanation_table(df: pd.DataFrame, money_cols=None, percent
         st.info("لا توجد بيانات كافية.")
         return
     render_html_table(df, columns=list(df.columns), money_cols=money_cols, percent_cols=percent_cols)
+
+
+def render_sector_scorecard(df: pd.DataFrame):
+    if df is None or df.empty:
+        st.info("لا توجد بيانات كافية لبطاقة السلامة القطاعية.")
+        return
+    visible = df.drop(columns=[c for c in df.columns if c.startswith("_")], errors="ignore")
+    render_html_table(
+        visible,
+        columns=list(visible.columns),
+        percent_cols=["قيمة الشركة", "الفجوة عن المعيار"],
+    )
+
+def render_actions_table(df: pd.DataFrame):
+    if df is None or df.empty:
+        st.info("لا توجد أولويات تنفيذ كافية.")
+        return
+    render_html_table(df, columns=list(df.columns))

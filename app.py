@@ -11,6 +11,7 @@ from trial_balance_engine import parse_trial_balance
 from validation_engine import validate_project
 from financial_model import build_basic_financial_model
 from period_engine import months_from_revenue_model, months_from_expense_model, common_months, filter_revenue_model, filter_expense_model
+from sector_action_engine import build_sector_safety_scorecard, build_top_5_actions, build_scorecard_summary
 from executive_diagnosis_engine import build_owner_diagnosis, build_professional_actions
 from sector_benchmarks import SECTOR_OPTIONS, COUNTRY_OPTIONS, get_sector_config, sector_benchmark_table, sector_notes_df
 from business_explainer_engine import explain_performance_score, explain_break_even, build_sensitivity_explanations, build_expense_quality
@@ -30,7 +31,7 @@ from data_quality_engine import build_source_reconciliation, build_data_quality_
 from insights_engine import build_ratio_insights, build_breakeven_insights, build_forecast_insights, build_expense_insights, build_forecast_assumptions_table
 from expense_classifier import apply_smart_classification
 from mapping_ui import render_expense_mapping_editor
-from display_utils import render_pnl_statement, render_monthly_profitability, render_ratios_table, render_simple_financial_table, sort_month_df, render_insight_panel, render_breakeven_summary, render_reconciliation_table, render_executive_income_statement, render_executive_monthly_profitability, render_financial_scorecard, render_sensitivity_table, render_business_explanation_table
+from display_utils import render_pnl_statement, render_monthly_profitability, render_ratios_table, render_simple_financial_table, sort_month_df, render_insight_panel, render_breakeven_summary, render_reconciliation_table, render_executive_income_statement, render_executive_monthly_profitability, render_financial_scorecard, render_sensitivity_table, render_business_explanation_table, render_sector_scorecard, render_actions_table
 from excel_pack import build_excel_pack
 
 st.set_page_config(page_title=APP_NAME, page_icon="📊", layout="wide")
@@ -57,7 +58,7 @@ if "model_ready" not in st.session_state:
 if "show_setup" not in st.session_state:
     st.session_state.show_setup = False
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V10.2</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.0</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.session_state.get("models") and st.session_state.get("model_ready", False):
@@ -152,6 +153,12 @@ if st.session_state.get("models") and st.session_state.get("model_ready", False)
         <div class="brief-subtext"><strong>مؤشر المتابعة:</strong> {dash_diag['next_kpi']}</div>
     </div>
     """, unsafe_allow_html=True)
+
+    sector_scorecard_dash = build_sector_safety_scorecard(pnl_model, breakeven_model, business_sector, country, activity)
+    top_action_dash = build_top_5_actions(sector_scorecard_dash)
+    if top_action_dash is not None and not top_action_dash.empty:
+        first_action = top_action_dash.iloc[0]
+        st.warning(f"أولوية التنفيذ الأولى: {first_action['المشكلة']} — {first_action['الإجراء المطلوب']}")
 
     st.info("للاطلاع على الإعدادات، جودة البيانات، التصنيف، والجداول التفصيلية فعّل خيار: إظهار الإعداد والتحقق أعلى الصفحة.")
     st.stop()
@@ -468,6 +475,36 @@ if st.session_state.models:
                 else:
                     st.info("لا توجد بيانات إيرادات كافية.")
 
+            elif tab_name in ["Sector Safety", "معايير القطاع"]:
+                section_header("معايير السلامة القطاعية")
+                st.caption(f"القطاع: {business_sector} | البلد: {country} | طبيعة النشاط: {activity}")
+
+                sector_scorecard = build_sector_safety_scorecard(
+                    pnl_model,
+                    breakeven_model,
+                    business_sector,
+                    country,
+                    activity,
+                )
+                sector_summary = build_scorecard_summary(sector_scorecard, business_sector)
+
+                render_insight_panel(
+                    sector_summary["title"],
+                    sector_summary["summary"],
+                    sector_summary["risk"],
+                    sector_summary["action"],
+                    [
+                        "المقارنة تتم مع معايير عملية حسب القطاع المختار وليست حكماً نهائياً.",
+                        "أي مؤشر بحالة مراقبة أو خطر يجب ربطه بإجراء ومسؤول ومؤشر متابعة.",
+                        "تُستخدم هذه الصفحة كأساس لتوليد أولويات التنفيذ."
+                    ],
+                )
+
+                st.markdown("#### مقارنة الشركة مع معيار القطاع")
+                render_sector_scorecard(sector_scorecard)
+
+                st.markdown("#### أولويات التنفيذ لهذا الشهر")
+                render_actions_table(build_top_5_actions(sector_scorecard))
             elif tab_name in ["P&L", "قائمة الدخل"]:
                 st.subheader("قائمة الدخل")
                 st.info(pnl_model.get("note", ""))
@@ -523,13 +560,17 @@ if st.session_state.models:
                     ["المؤشر ليس حكماً على السيولة أو التحصيل.", "الهدف منه تحديد أولويات الإدارة الداخلية.", "أي توصية توسع لا تُعتمد قبل ضبط المصاريف والتحصيل وجودة البيانات."],
                 )
                 st.markdown("#### معايير السلامة حسب القطاع")
-                render_business_explanation_table(
+                render_business_explanation_table, render_sector_scorecard, render_actions_table(
                     sector_notes_df(business_sector, country, activity)
                 )
-                render_business_explanation_table(
+                render_business_explanation_table, render_sector_scorecard, render_actions_table(
                     sector_benchmark_table(business_sector),
                     percent_cols=["الحد الآمن", "حد المراقبة"]
                 )
+
+                st.markdown("#### بطاقة السلامة القطاعية المختصرة")
+                sector_scorecard = build_sector_safety_scorecard(pnl_model, breakeven_model, business_sector, country, activity)
+                render_sector_scorecard(sector_scorecard)
 
                 st.markdown("#### التشخيص التنفيذي لصاحب العمل")
                 diagnosis = build_owner_diagnosis(pnl_model, breakeven_model, expense_model, business_sector, country, activity)
@@ -545,12 +586,12 @@ if st.session_state.models:
                 """, unsafe_allow_html=True)
 
                 st.markdown("#### أولويات التنفيذ")
-                render_business_explanation_table(
+                render_business_explanation_table, render_sector_scorecard, render_actions_table(
                     build_professional_actions(pnl_model, breakeven_model, expense_model, business_sector)
                 )
 
                 st.markdown("#### كيف تم احتساب المؤشر؟")
-                render_business_explanation_table(score_explain["rows"])
+                render_business_explanation_table, render_sector_scorecard, render_actions_table(score_explain["rows"])
                 message_box(ratio_model.get("biggest_risk", ""), "warning")
                 message_box(ratio_model.get("next_decision", ""), "info")
 
@@ -615,7 +656,7 @@ if st.session_state.models:
 
                 st.markdown("#### ماذا تعني نقطة التعادل؟")
                 st.info(be_explain["meaning"])
-                render_business_explanation_table(be_explain["formula_rows"])
+                render_business_explanation_table, render_sector_scorecard, render_actions_table(be_explain["formula_rows"])
                 st.markdown("#### كيف تم تقييم ثقة الحساب؟")
                 st.warning(f"ثقة الحساب: {be_explain['confidence_label']} — {be_explain['confidence_score']}/100")
                 for _r in be_explain["confidence_reasons"]:
@@ -632,7 +673,7 @@ if st.session_state.models:
                 be_summary = breakeven_model.get("summary", pd.DataFrame()).copy()
                 render_breakeven_summary(be_summary)
                 st.markdown("#### اختبار الحساسية")
-                render_business_explanation_table(build_sensitivity_explanations(build_break_even_sensitivity(breakeven_model)), money_cols=['التكاليف الثابتة','إيراد التعادل','فجوة التعادل'], percent_cols=['هامش المساهمة'])
+                render_business_explanation_table, render_sector_scorecard, render_actions_table(build_sensitivity_explanations(build_break_even_sensitivity(breakeven_model)), money_cols=['التكاليف الثابتة','إيراد التعادل','فجوة التعادل'], percent_cols=['هامش المساهمة'])
 
                 st.markdown("#### السيناريوهات")
                 scenarios_df = breakeven_model.get("scenarios", pd.DataFrame()).copy()
