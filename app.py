@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from file_role_resolver import resolve_file_role
 
 from config import APP_NAME, SOURCE_ROLES, REVENUE_DEFINITIONS, ANALYSIS_MODES
 from data_reader import read_excel_file
@@ -61,7 +62,7 @@ if "model_ready" not in st.session_state:
 if "show_setup" not in st.session_state:
     st.session_state.show_setup = False
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.3</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.4</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.session_state.get("models") and st.session_state.get("model_ready", False):
@@ -360,7 +361,9 @@ if st.session_state.files:
         readable_files = [r for r in st.session_state.files if not r.get("read_error")]
         revenue_record = next((r for r in readable_files if r["selected_role"] == "official_revenue_source"), None)
         expense_record = next((r for r in readable_files if r["selected_role"] == "official_expense_source"), None)
-        tb_record = next((r for r in readable_files if r["selected_role"] == "validation_source" and r["detected_type"] == "trial_balance"), None)
+        tb_candidates = [r for r in readable_files if r["selected_role"] == "validation_source" and r["detected_type"] == "trial_balance"]
+        tb_record = next((r for r in tb_candidates if "ميزان" in r.get("file_name", "") or "trial" in r.get("file_name", "").lower()), None)
+        tb_record = tb_record or (tb_candidates[0] if tb_candidates else None)
 
         revenue_model = build_revenue_model(revenue_record, revenue_definition) if revenue_record else None
         expense_model = build_expense_model(expense_record, revenue_model.get("total_revenue", 0) if revenue_model else 0) if expense_record else None
@@ -426,11 +429,16 @@ if st.session_state.models:
     section_header("3. فحص جودة البيانات")
 
     for check in validation_checks:
+        if check.get("check") in ["Revenue Notes", "Expense Notes", "Revenue Value", "Expense Value", "Revenue Source", "P&L Source", "Revenue vs Trial Balance", "Source Roles", "Purchases from Trial Balance"]:
+            continue
         message_box(f"**{check['check']}** — {check['message']}", check["level"])
 
     exec_kpis = build_executive_kpis(pnl_model, expense_model)
     performance_scorecard = build_financial_performance_scorecard(pnl_model, breakeven_model)
     section_header("5. لوحة المؤشرات التنفيذية")
+    if not pnl_model or float(pnl_model.get("revenue", 0) or 0) == 0:
+        st.error("لا تعرض اللوحة أرقاماً صفرية لأن قائمة الدخل لم تُبنَ من ميزان المراجعة. راجع دور الملفات وتأكد أن ملف ميزان المراجعة مصنف كـ validation_source ونوعه trial_balance.")
+        st.stop()
     st.caption(f"قطاع التحليل: {business_sector} | البلد: {country} | طبيعة النشاط: {activity}")
 
     exec_kpis = build_executive_kpis(pnl_model, expense_model)

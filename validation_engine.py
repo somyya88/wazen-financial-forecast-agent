@@ -5,11 +5,11 @@ def validate_project(file_rows: list[dict], revenue_model: dict | None = None, e
     checks = []
 
     for warning in validate_source_roles(file_rows):
-        checks.append({"level": "warning", "check": "Source Roles", "message": warning})
+        checks.append({"level": "warning", "check": "أدوار الملفات", "message": warning})
 
     has_tb = any(r.get("selected_role") == "validation_source" and r.get("detected_type") == "trial_balance" for r in file_rows)
     if has_tb:
-        checks.append({"level": "success", "check": "P&L Source", "message": "سيتم استخدام ميزان المراجعة كمصدر أساسي لإعداد قائمة الدخل، بينما تستخدم ملفات المبيعات والمصاريف للتحليل الشهري."})
+        checks.append({"level": "success", "check": "مصدر قائمة الدخل", "message": "سيتم استخدام ميزان المراجعة كمصدر أساسي لإعداد قائمة الدخل، بينما تستخدم ملفات المبيعات والمصاريف للتحليل الشهري."})
 
     official_revenue = [r for r in file_rows if r.get("selected_role") == "official_revenue_source"]
     if len(official_revenue) == 1:
@@ -21,8 +21,6 @@ def validate_project(file_rows: list[dict], revenue_model: dict | None = None, e
             checks.append({"level": "error", "check": "Revenue Value", "message": "قيمة الإيرادات صفر أو غير مقروءة."})
         else:
             checks.append({"level": "success", "check": "Revenue Value", "message": f"تم استخراج إيرادات بقيمة {total:,.2f}."})
-        for note in revenue_model.get("notes", []):
-            checks.append({"level": "info", "check": "Revenue Notes", "message": note})
 
     if expense_model:
         total = expense_model.get("total_expenses", 0)
@@ -30,8 +28,6 @@ def validate_project(file_rows: list[dict], revenue_model: dict | None = None, e
             checks.append({"level": "warning", "check": "Expense Value", "message": "لم يتم استخراج مصاريف واضحة."})
         else:
             checks.append({"level": "success", "check": "Expense Value", "message": f"تم استخراج مصاريف بقيمة {total:,.2f}."})
-        for note in expense_model.get("notes", []):
-            checks.append({"level": "info", "check": "Expense Notes", "message": note})
 
     # Compare official revenue with reliable TB net sales metric, not raw credit totals.
     if tb_model:
