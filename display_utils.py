@@ -354,3 +354,12 @@ def render_sensitivity_table(df: pd.DataFrame):
         money_cols=["التكاليف الثابتة", "إيراد التعادل", "فجوة التعادل"],
         percent_cols=["هامش المساهمة"],
     )
+
+
+def render_business_explanation_table(df: pd.DataFrame, money_cols=None, percent_cols=None):
+    money_cols = money_cols or []
+    percent_cols = percent_cols or []
+    if df is None or df.empty:
+        st.info("لا توجد بيانات كافية.")
+        return
+    render_html_table(df, columns=list(df.columns), money_cols=money_cols, percent_cols=percent_cols)

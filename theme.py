@@ -429,6 +429,19 @@ def apply_theme():
         direction: ltr;
     }
 
+
+    /* V9.8 Arabic-first layout hardening */
+    .stApp, .main, section.main, div[data-testid="stAppViewContainer"] { direction: rtl !important; text-align: right !important; }
+    div[data-testid="stMarkdownContainer"], div[data-testid="stMarkdownContainer"] p, div[data-testid="stMarkdownContainer"] li, div[data-testid="stCaptionContainer"], .stAlert, .stAlert p { direction: rtl !important; text-align: right !important; }
+    .kpi-card, .insight-panel, .insight-box { direction: rtl !important; text-align: right !important; }
+    .kpi-label, .kpi-note { text-align: right !important; direction: rtl !important; }
+    .kpi-value { text-align: right !important; direction: ltr !important; unicode-bidi: plaintext !important; }
+    .wazen-table, .wazen-table th, .wazen-table td { direction: rtl !important; text-align: right !important; }
+    .wazen-table td.num { text-align: right !important; direction: ltr !important; unicode-bidi: plaintext !important; }
+    .wazen-table td.en { text-align: right !important; direction: ltr !important; color:#667085; }
+    .stDataFrame, div[data-testid="stDataFrame"] { direction: rtl !important; }
+    ul.insight-bullets { list-style-position: inside !important; padding-right:0 !important; margin-right:0 !important; text-align:right !important; }
+
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
