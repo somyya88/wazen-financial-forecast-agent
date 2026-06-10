@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V9.9
+# Wazen CFO Intelligence Agent V10.1
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
 
@@ -249,3 +249,26 @@ Only one file can be selected as the official revenue source.
 - Ratio and performance analysis now use sector-specific thresholds.
 - Adds benchmark explanation tables for sector, activity, country, safe threshold and watch threshold.
 - Prepares later localization for country, taxes, currency and regulatory context.
+
+## V10.0 additions
+
+- Adds executive diagnosis engine for business-owner language.
+- Recommendations now include:
+  - what is happening
+  - where the risk is
+  - practical action
+  - responsible owner
+  - next-period KPI
+- Adds Top Execution Priorities based on sector thresholds.
+- Removes generic one-word recommendations like "review expenses" and replaces them with full professional diagnosis.
+- Adds executive diagnosis blocks to Dashboard, Ratios and Break-even.
+
+## V10.1 additions
+
+- Makes the first dashboard page concise and focused.
+- Reduces the executive overview to:
+  - 4 key cards
+  - one 60-second executive brief
+  - one primary action
+  - one next-period KPI
+- Moves detailed reasoning to internal pages instead of overwhelming the first page.

@@ -442,6 +442,72 @@ def apply_theme():
     .stDataFrame, div[data-testid="stDataFrame"] { direction: rtl !important; }
     ul.insight-bullets { list-style-position: inside !important; padding-right:0 !important; margin-right:0 !important; text-align:right !important; }
 
+
+    .executive-diagnosis {
+        direction: rtl;
+        text-align: right;
+        background: #FFFFFF;
+        border: 1px solid #D9E2F0;
+        border-radius: 20px;
+        padding: 24px 28px;
+        margin: 18px 0 26px 0;
+        box-shadow: 0 18px 45px rgba(16, 24, 40, 0.06);
+        border-right: 6px solid #17479E;
+    }
+    .executive-diagnosis h3 {
+        color: #17479E;
+        font-size: 24px;
+        margin-bottom: 16px;
+        font-weight: 900;
+    }
+    .executive-diagnosis p {
+        font-size: 16px;
+        line-height: 2;
+        color: #101828;
+        margin-bottom: 14px;
+    }
+    .executive-diagnosis strong {
+        color: #0B2E63;
+    }
+
+
+    .executive-brief.compact {
+        direction: rtl;
+        text-align: right;
+        background: #FFFFFF;
+        border: 1px solid #D9E2F0;
+        border-right: 6px solid #17479E;
+        border-radius: 18px;
+        padding: 18px 22px;
+        margin: 18px 0 12px 0;
+        box-shadow: 0 14px 32px rgba(16, 24, 40, 0.05);
+    }
+    .executive-brief.compact .brief-title {
+        color: #17479E;
+        font-size: 19px;
+        font-weight: 900;
+        margin-bottom: 8px;
+    }
+    .executive-brief.compact .brief-text {
+        font-size: 15.5px;
+        line-height: 1.9;
+        color: #101828;
+        margin-bottom: 8px;
+    }
+    .executive-brief.compact .brief-action {
+        font-size: 15px;
+        line-height: 1.8;
+        color: #0B2E63;
+        background: #F5F8FF;
+        border-radius: 12px;
+        padding: 10px 12px;
+        margin: 8px 0;
+    }
+    .executive-brief.compact .brief-subtext {
+        font-size: 14px;
+        color: #475467;
+    }
+
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)

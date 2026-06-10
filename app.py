@@ -11,6 +11,7 @@ from trial_balance_engine import parse_trial_balance
 from validation_engine import validate_project
 from financial_model import build_basic_financial_model
 from period_engine import months_from_revenue_model, months_from_expense_model, common_months, filter_revenue_model, filter_expense_model
+from executive_diagnosis_engine import build_owner_diagnosis, build_professional_actions
 from sector_benchmarks import SECTOR_OPTIONS, COUNTRY_OPTIONS, get_sector_config, sector_benchmark_table, sector_notes_df
 from business_explainer_engine import explain_performance_score, explain_break_even, build_sensitivity_explanations, build_expense_quality
 from executive_insights_engine import build_financial_performance_scorecard, build_break_even_confidence, build_break_even_sensitivity, build_forecast_decision
@@ -52,7 +53,7 @@ if "mapping_signature" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.9</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V10.1</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.button("تحديث / مسح النموذج السابق"):
@@ -360,25 +361,30 @@ if st.session_state.models:
     section_header("5. لوحة المؤشرات التنفيذية")
     st.caption(f"قطاع التحليل: {business_sector} | البلد: {country} | طبيعة النشاط: {activity}")
 
+    exec_kpis = build_executive_kpis(pnl_model, expense_model)
+    performance_scorecard = build_financial_performance_scorecard(pnl_model, breakeven_model)
+    dash_diag = build_owner_diagnosis(pnl_model, breakeven_model, expense_model, business_sector, country, activity)
+
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         kpi_card("الإيرادات التشغيلية", f"{exec_kpis.get('operating_revenue', 0):,.0f}", "إيراد النشاط الأساسي")
     with c2:
-        kpi_card("مجمل الربح", f"{exec_kpis.get('gross_profit', 0):,.0f}", f"هامش مجمل الربح {exec_kpis.get('gross_margin', 0)*100:.1f}%")
-    with c3:
         kpi_card("صافي الربح", f"{exec_kpis.get('net_profit', 0):,.0f}", f"هامش صافي الربح {exec_kpis.get('net_margin', 0)*100:.1f}%")
+    with c3:
+        kpi_card("هامش الأمان", f"{breakeven_model.get('margin_of_safety', 0)*100:.1f}%", "المسافة قبل نقطة التعادل")
     with c4:
-        kpi_card("مؤشر الأداء والربحية", f"{performance_scorecard.get('score', 0):.0f}/100", performance_scorecard.get("status", ""))
+        kpi_card("مؤشر الأداء والربحية", f"{performance_scorecard.get('score', 0):.0f}/100", "مؤشر مبني على الهوامش والتعادل")
 
-    c5, c6, c7, c8 = st.columns(4)
-    with c5:
-        kpi_card("المصاريف التشغيلية", f"{exec_kpis.get('operating_expenses', 0):,.0f}", f"{exec_kpis.get('opex_ratio', 0)*100:.1f}% من الإيرادات")
-    with c6:
-        kpi_card("إيراد التعادل", f"{breakeven_model.get('break_even_revenue', breakeven_model.get('breakeven_revenue', 0)):,.0f}", "الحد الأدنى لتغطية التكاليف")
-    with c7:
-        kpi_card("هامش الأمان", f"{breakeven_model.get('margin_of_safety', 0)*100:.1f}%", "المسافة قبل الوصول للتعادل")
-    with c8:
-        kpi_card("الإجراء المقترح", exec_kpis.get("next_action", "—"), exec_kpis.get("next_action_reason", ""))
+    st.markdown(f"""
+    <div class="executive-brief compact">
+        <div class="brief-title">الخلاصة خلال 60 ثانية</div>
+        <div class="brief-text">{dash_diag['situation']}</div>
+        <div class="brief-action"><strong>الإجراء الأهم الآن:</strong> {dash_diag['action']}</div>
+        <div class="brief-subtext"><strong>مؤشر المتابعة:</strong> {dash_diag['next_kpi']}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.caption("للتفاصيل: راجع صفحات تحليل النسب، كفاءة الإنفاق، نقطة التعادل، والسيناريوهات.")
 
     active_tabs = tabs_for_mode(analysis_mode)
     tabs = st.tabs(active_tabs)
@@ -463,6 +469,24 @@ if st.session_state.models:
                     percent_cols=["الحد الآمن", "حد المراقبة"]
                 )
 
+                st.markdown("#### التشخيص التنفيذي لصاحب العمل")
+                diagnosis = build_owner_diagnosis(pnl_model, breakeven_model, expense_model, business_sector, country, activity)
+                st.markdown(f"""
+                <div class="executive-diagnosis">
+                    <h3>{diagnosis['issue']}</h3>
+                    <p><strong>ما الذي يحدث؟</strong><br>{diagnosis['situation']}</p>
+                    <p><strong>أين الخطر؟</strong><br>{diagnosis['risk']}</p>
+                    <p><strong>الإجراء العملي المقترح</strong><br>{diagnosis['action']}</p>
+                    <p><strong>المسؤول:</strong> {diagnosis['owner']}</p>
+                    <p><strong>مؤشر المتابعة للشهر القادم:</strong> {diagnosis['next_kpi']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                st.markdown("#### أولويات التنفيذ")
+                render_business_explanation_table(
+                    build_professional_actions(pnl_model, breakeven_model, expense_model, business_sector)
+                )
+
                 st.markdown("#### كيف تم احتساب المؤشر؟")
                 render_business_explanation_table(score_explain["rows"])
                 message_box(ratio_model.get("biggest_risk", ""), "warning")
@@ -522,6 +546,11 @@ if st.session_state.models:
                     kpi_card("فجوة التعادل", f"{breakeven_model.get('breakeven_gap', 0):,.0f}", "الإيرادات الحالية - التعادل")
 
                 be_explain = explain_break_even(breakeven_model, st.session_state.get("expense_mapping", None))
+                st.markdown("#### تشخيص نقطة التعادل لصاحب العمل")
+                be_owner_diag = build_owner_diagnosis(pnl_model, breakeven_model, expense_model, business_sector, country, activity)
+                st.info(be_owner_diag["risk"])
+                st.warning(be_owner_diag["action"])
+
                 st.markdown("#### ماذا تعني نقطة التعادل؟")
                 st.info(be_explain["meaning"])
                 render_business_explanation_table(be_explain["formula_rows"])
