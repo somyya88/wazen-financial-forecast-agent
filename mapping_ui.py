@@ -2,9 +2,20 @@ import pandas as pd
 import streamlit as st
 
 CATEGORY_OPTIONS = [
-    "COGS", "Payroll", "Marketing", "Rent", "Maintenance", "Fuel",
-    "Spare Parts", "Depreciation", "Finance Costs", "Bank Charges",
-    "Admin Opex", "Selling Opex", "Other Opex",
+    "Cost of Revenue",
+    "Purchases",
+    "Payroll",
+    "Rent",
+    "Utilities",
+    "Maintenance",
+    "Fuel",
+    "Spare Parts",
+    "Depreciation",
+    "Finance Costs",
+    "Bank Charges",
+    "Selling & Marketing",
+    "Administrative Expenses",
+    "Other Opex",
 ]
 COST_BEHAVIOR_OPTIONS = ["Fixed", "Variable", "Semi-variable"]
 
@@ -83,7 +94,7 @@ def render_expense_mapping_editor(mapping_df: pd.DataFrame, key_prefix: str = "e
     st.caption("التعديلات تتم على الصفوف المعروضة فقط، ثم تُدمج تلقائياً مع كامل جدول التصنيف عند الحفظ.")
 
     edited = st.data_editor(
-        filtered[["account_name", "current_category", "user_category", "cost_behavior", "amount"]],
+        filtered[[c for c in ["account_name", "current_category", "user_category", "cost_behavior", "amount", "classification_confidence", "classification_source", "classification_reason"] if c in filtered.columns]],
         use_container_width=True,
         hide_index=False,
         column_config={
@@ -92,6 +103,9 @@ def render_expense_mapping_editor(mapping_df: pd.DataFrame, key_prefix: str = "e
             "user_category": st.column_config.SelectboxColumn("التصنيف المعتمد", options=CATEGORY_OPTIONS, required=True),
             "cost_behavior": st.column_config.SelectboxColumn("نوع التكلفة", options=COST_BEHAVIOR_OPTIONS, required=True),
             "amount": st.column_config.NumberColumn("المبلغ", format="%.2f", disabled=True),
+            "classification_confidence": st.column_config.NumberColumn("الثقة", disabled=True, format="%d"),
+            "classification_source": st.column_config.TextColumn("المصدر", disabled=True),
+            "classification_reason": st.column_config.TextColumn("سبب التصنيف", disabled=True),
         },
         key=f"{key_prefix}_editor",
         num_rows="fixed",

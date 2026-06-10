@@ -91,3 +91,79 @@ def monthly_pnl(revenue_model, expense_model):
     rev["preliminary_profit"] = rev["revenue"] - rev["expenses"]
     rev["margin"] = rev.apply(lambda r: r["preliminary_profit"] / r["revenue"] if r["revenue"] else 0, axis=1)
     return rev
+
+
+def build_management_income_statement(pnl_model: dict, expense_model: dict | None = None):
+    """
+    Management P&L:
+    Revenue
+    - Cost of Revenue / COGS (official COGS + mapped direct costs when available)
+    = Gross Operating Margin
+    - Administrative Expenses
+    - Selling & Marketing Expenses
+    - Finance Costs / Other Opex
+    = Net Profit
+    """
+    import pandas as pd
+
+    def sf(x):
+        try:
+            return float(x)
+        except Exception:
+            return 0.0
+
+    revenue = sf(pnl_model.get("revenue", 0))
+    official_cogs = sf(pnl_model.get("cogs", 0))
+    official_opex = sf(pnl_model.get("opex", 0))
+
+    direct = admin = selling = finance = other = 0.0
+
+    if expense_model and not expense_model.get("expense_long", pd.DataFrame()).empty:
+        df = expense_model["expense_long"].copy()
+        df["amount"] = pd.to_numeric(df.get("amount"), errors="coerce").fillna(0)
+        cat_col = "user_category" if "user_category" in df.columns else "category"
+
+        for _, r in df.iterrows():
+            cat = str(r.get(cat_col, ""))
+            amount = sf(r.get("amount", 0))
+            if cat in ["Cost of Revenue", "Purchases", "COGS", "Spare Parts", "Fuel"]:
+                direct += amount
+            elif cat in ["Selling & Marketing", "Marketing", "Selling Opex"]:
+                selling += amount
+            elif cat in ["Finance Costs"]:
+                finance += amount
+            elif cat in ["Other Opex"]:
+                other += amount
+            else:
+                admin += amount
+
+        # Avoid double counting official COGS if mapped direct costs are from same expense file.
+        cost_of_revenue = max(official_cogs, direct)
+        total_mapped_opex = direct + admin + selling + finance + other
+        # Scale non-direct opex to official opex if mapped expense file differs materially.
+        non_direct = admin + selling + finance + other
+        if non_direct > 0 and official_opex > 0:
+            scale = official_opex / non_direct
+            admin *= scale
+            selling *= scale
+            finance *= scale
+            other *= scale
+    else:
+        cost_of_revenue = official_cogs
+        admin = official_opex
+
+    gross_operating_profit = revenue - cost_of_revenue
+    operating_profit = gross_operating_profit - admin - selling - other
+    net_profit = operating_profit - finance
+
+    return pd.DataFrame([
+        ["الإيرادات التشغيلية", "Operating Revenue", revenue],
+        ["تكلفة الإيراد / تكلفة البضاعة المباعة", "Cost of Revenue / COGS", cost_of_revenue],
+        ["مجمل الربح التشغيلي", "Gross Operating Profit", gross_operating_profit],
+        ["المصاريف الإدارية والعمومية", "General & Administrative Expenses", admin],
+        ["مصاريف البيع والتسويق", "Selling & Marketing Expenses", selling],
+        ["مصاريف تشغيلية أخرى", "Other Operating Expenses", other],
+        ["الربح التشغيلي", "Operating Profit", operating_profit],
+        ["مصاريف تمويلية", "Finance Costs", finance],
+        ["صافي الربح", "Net Profit", net_profit],
+    ], columns=["العربي", "English", "Amount"])

@@ -11,7 +11,7 @@ from trial_balance_engine import parse_trial_balance
 from validation_engine import validate_project
 from financial_model import build_basic_financial_model
 from period_engine import months_from_revenue_model, months_from_expense_model, common_months, filter_revenue_model, filter_expense_model
-from financial_statement_engine import build_pnl, monthly_pnl
+from financial_statement_engine import build_pnl, build_management_income_statement, monthly_pnl
 from ratio_engine import build_ratios
 from breakeven_engine import build_breakeven
 from forecast_engine import build_forecast
@@ -23,6 +23,7 @@ from cards import kpi_card, section_header, message_box
 from charts import line_chart, bar_chart, pie_chart
 from data_quality_engine import build_source_reconciliation, build_data_quality_score
 from insights_engine import build_ratio_insights, build_breakeven_insights, build_forecast_insights, build_expense_insights, build_forecast_assumptions_table
+from expense_classifier import apply_smart_classification
 from mapping_ui import render_expense_mapping_editor
 from display_utils import render_pnl_statement, render_monthly_profitability, render_ratios_table, render_simple_financial_table, sort_month_df, render_insight_panel, render_breakeven_summary, render_reconciliation_table
 from excel_pack import build_excel_pack
@@ -47,7 +48,7 @@ if "mapping_signature" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.2</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.4</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.button("تحديث / مسح النموذج السابق"):
@@ -224,7 +225,7 @@ if st.session_state.files:
 
     if preview_expense_model and not preview_expense_model.get("expense_long", pd.DataFrame()).empty:
         # Stable account signature: regenerate suggested mapping only when the expense accounts change.
-        initial_mapping = build_expense_mapping(preview_expense_model, industry)
+        initial_mapping = apply_smart_classification(build_expense_mapping(preview_expense_model, industry), use_openai=True)
         current_signature = "|".join(initial_mapping["account_name"].astype(str).tolist())
 
         if st.session_state.mapping_signature != current_signature:
@@ -232,14 +233,14 @@ if st.session_state.files:
             st.session_state.expense_mapping_saved = False
             st.session_state.mapping_signature = current_signature
 
-        st.info("استخدم الفلاتر للوصول إلى البنود المطلوبة، ثم عدّل التصنيف أو نوع التكلفة واضغط حفظ. زر إعادة التوليد يمسح التعديلات ويعيد التصنيف الآلي فقط.")
+        st.info("استخدم الفلاتر للوصول إلى البنود المطلوبة، ثم عدّل التصنيف أو نوع التكلفة واضغط حفظ. التصنيف يستخدم OpenAI عند توفر الربط، ويعود إلى قواعد محاسبية محلية عند تعذر الاتصال. يجب مراجعة التصنيف قبل اعتماد النموذج.")
 
         c_map1, c_map2, c_map3 = st.columns([1, 1, 2])
         with c_map1:
-            if st.button("إعادة توليد التصنيف المقترح"):
-                st.session_state.expense_mapping = initial_mapping.copy()
+            if st.button("إعادة توليد التصنيف بالذكاء الصناعي"):
+                st.session_state.expense_mapping = apply_smart_classification(initial_mapping.copy(), use_openai=True)
                 st.session_state.expense_mapping_saved = False
-                st.warning("تمت إعادة توليد التصنيف المقترح. راجعي الجدول ثم اضغطي حفظ.")
+                st.warning("تمت إعادة توليد التصنيف بالذكاء الصناعي. يرجى مراجعة البنود ثم حفظ التصنيف.")
         with c_map2:
             if st.session_state.expense_mapping_saved:
                 st.success("تم حفظ التصنيف")
@@ -382,6 +383,13 @@ if st.session_state.models:
                 st.subheader("قائمة الدخل")
                 st.info(pnl_model.get("note", ""))
                 render_pnl_statement(pnl_model.get("pnl", pd.DataFrame()))
+
+                st.markdown("#### قائمة الدخل الإدارية")
+                st.caption("هذا العرض يفصل تكلفة الإيراد عن المصاريف الإدارية والتسويقية لقراءة هامش التشغيل بشكل أدق.")
+                try:
+                    render_pnl_statement(build_management_income_statement(pnl_model, expense_model))
+                except Exception:
+                    st.info("لا يمكن بناء قائمة الدخل الإدارية من البيانات الحالية.")
 
                 st.markdown('<a id="expense-drilldown"></a>', unsafe_allow_html=True)
                 with st.expander("تفاصيل المصاريف التشغيلية من ملف المصروفات", expanded=False):
