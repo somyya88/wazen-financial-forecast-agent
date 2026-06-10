@@ -1,21 +1,57 @@
 
 def _norm(s):
-    return str(s or "").strip().lower().replace("_", " ").replace("-", " ")
+    return str(s or "").strip().lower().replace("_"," ").replace("-"," ").replace("#"," ")
 
-def resolve_file_role(filename="", detected_type="", current_role="", confidence=0):
+def resolve_by_filename(filename, detected_type="", suggested_role="", confidence=0):
     name = _norm(filename)
-    detected = _norm(detected_type)
     conf = float(confidence or 0)
-    if any(w in name for w in ["كشف حساب", "حساب البنك", "البنك", "بنك", "الاهلي", "الأهلي", "الراجحي", "bank statement", "ahli", "rajhi"]) and not any(w in name for w in ["ميزان", "trial balance"]):
-        return {"role":"cash_source", "type":"bank_statement", "confidence":max(conf, .95), "reason":"كشف بنك: يستخدم للسيولة والمطابقة، وليس لبناء قائمة الدخل."}
-    if any(w in name for w in ["أعمار العملاء", "اعمار العملاء", "ذمم العملاء", "العملاء", "receivable", "customer aging"]):
-        return {"role":"supporting_source", "type":"ar_aging", "confidence":max(conf, .95), "reason":"أعمار العملاء: يستخدم للتحصيل والسيولة، وليس لبناء قائمة الدخل."}
-    if any(w in name for w in ["أعمار الموردين", "اعمار الموردين", "ذمم الموردين", "الموردين", "payable", "supplier aging", "vendor aging"]):
-        return {"role":"supporting_source", "type":"ap_aging", "confidence":max(conf, .95), "reason":"أعمار الموردين: يستخدم للالتزامات والسيولة، وليس لبناء قائمة الدخل."}
-    if any(w in name for w in ["ميزان المراجعة", "ميزان مراجعه", "trial balance"]) or "trial balance" in detected or "trial_balance" in detected:
-        return {"role":"validation_source", "type":"trial_balance", "confidence":max(conf, .98), "reason":"ميزان المراجعة هو المصدر الرسمي لقائمة الدخل."}
-    if any(w in name for w in ["المبيعات الشهرية", "مبيعات شهرية", "monthly sales"]) or "sales" in detected:
-        return {"role":"official_revenue_source", "type": detected_type or "monthly_sales_wide", "confidence":max(conf, .85), "reason":"المبيعات للتحليل الشهري وتوزيع الإيراد."}
-    if any(w in name for w in ["تقرير المصروفات", "المصروفات", "expenses", "expense"]) or "expense" in detected:
-        return {"role":"official_expense_source", "type": detected_type or "expense_monthly", "confidence":max(conf, .90), "reason":"المصاريف للتحليل التفصيلي والتصنيف."}
-    return {"role": current_role or "supporting_source", "type": detected_type or "unknown", "confidence": conf or .25, "reason":"مصدر داعم لم يتم التعرف عليه بثقة."}
+    detected = _norm(detected_type)
+
+    if any(x in name for x in ["أعمار ديون العملاء", "اعمار ديون العملاء", "أعمار العملاء", "اعمار العملاء", "ديون العملاء", "ذمم العملاء", "customer aging", "receivable"]):
+        return "ar_aging", "ar_aging_source", max(conf, .98), "أعمار عملاء: يستخدم للتحصيل والسيولة."
+    if any(x in name for x in ["أعمار ديون الموردين", "اعمار ديون الموردين", "أعمار الموردين", "اعمار الموردين", "ديون الموردين", "ذمم الموردين", "supplier aging", "vendor aging", "payable"]):
+        return "ap_aging", "ap_aging_source", max(conf, .98), "أعمار موردين: يستخدم للالتزامات والسيولة."
+
+    bank_words = ["كشف حساب البنك", "كشف حساب", "حساب البنك", "البنك الأهلي", "البنك الاهلي", "الأهلي", "الاهلي", "الراجحي", "بنك", "bank statement", "statement", "ahli", "rajhi"]
+    tb_words = ["ميزان المراجعة", "ميزان مراجعه", "trial balance"]
+    if any(x in name for x in bank_words) and not any(x in name for x in tb_words):
+        return "bank_statement", "cash_source", max(conf, .98), "كشف بنك: يستخدم للسيولة والمطابقة وليس لقائمة الدخل."
+
+    if any(x in name for x in tb_words) or "trial_balance" in detected:
+        return "trial_balance", "validation_source", max(conf, .98), "ميزان مراجعة: المصدر الرسمي لقائمة الدخل."
+
+    if any(x in name for x in ["المبيعات الشهرية", "مبيعات شهرية", "monthly sales"]) or "sales" in detected:
+        return detected_type or "monthly_sales_wide", "official_revenue_source", max(conf, .90), "ملف مبيعات للتحليل الشهري."
+    if any(x in name for x in ["تقرير المصروفات", "المصروفات", "مصروفات", "expenses", "expense"]) or "expense" in detected:
+        return detected_type or "expense_monthly", "official_expense_source", max(conf, .90), "ملف مصاريف للتحليل والتصنيف."
+
+    return detected_type or "unknown", suggested_role or "supporting_source", conf or .25, "غير مؤكد؛ يحتاج تحديد يدوي."
+
+def apply_role_resolution_to_record(record):
+    detected, role, conf, reason = resolve_by_filename(
+        record.get("file_name") or record.get("filename") or "",
+        record.get("detected_type") or record.get("type") or "",
+        record.get("selected_role") or record.get("suggested_role") or "",
+        record.get("confidence", 0),
+    )
+    record["detected_type"] = detected
+    record["suggested_role"] = role
+    record["selected_role"] = role
+    record["confidence"] = conf
+    record["role_reason"] = reason
+    return record
+
+def has_liquidity_files(files):
+    roles = {str(f.get("selected_role") or "").lower() for f in (files or [])}
+    return bool(roles.intersection({"cash_source", "ar_aging_source", "ap_aging_source"}))
+
+def liquidity_files_summary(files):
+    roles = {str(f.get("selected_role") or "").lower() for f in (files or [])}
+    out=[]
+    if "cash_source" in roles:
+        out.append("كشف بنك")
+    if "ar_aging_source" in roles:
+        out.append("أعمار العملاء")
+    if "ap_aging_source" in roles:
+        out.append("أعمار الموردين")
+    return "، ".join(out) if out else "غير مرفقة"

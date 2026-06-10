@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from file_role_resolver import resolve_file_role
+from file_role_resolver import resolve_by_filename, apply_role_resolution_to_record, has_liquidity_files, liquidity_files_summary
 
 from config import APP_NAME, SOURCE_ROLES, REVENUE_DEFINITIONS, ANALYSIS_MODES
 from data_reader import read_excel_file
@@ -62,7 +62,7 @@ if "model_ready" not in st.session_state:
 if "show_setup" not in st.session_state:
     st.session_state.show_setup = False
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.4</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.5</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.session_state.get("models") and st.session_state.get("model_ready", False):
@@ -228,6 +228,7 @@ if uploaded_files and st.button("قراءة واكتشاف الملفات"):
             "read_error": None,
             "repaired": data.get("repaired", False),
         }
+        record = apply_role_resolution_to_record(record)
         st.session_state.files.append(record)
 
     if errors:
@@ -236,6 +237,7 @@ if uploaded_files and st.button("قراءة واكتشاف الملفات"):
         st.success("تمت قراءة الملفات واكتشاف أنواعها.")
 
 if st.session_state.files:
+    st.session_state.files = [apply_role_resolution_to_record(r) for r in st.session_state.files]
     section_header("2. تحديد دور كل ملف")
 
     updated_rows = []
@@ -245,6 +247,8 @@ if st.session_state.files:
             c1.markdown(f"**{record['file_name']}**")
             c2.markdown(f"`{record['detected_type']}`")
             c3.markdown(f"{record['confidence']:.0%}")
+            if record.get("role_reason"):
+                st.caption(record.get("role_reason"))
             selected = c4.selectbox(
                 "دور الملف",
                 SOURCE_ROLES,
@@ -499,8 +503,13 @@ if st.session_state.models:
                 </div>
                 """, unsafe_allow_html=True)
 
-                st.warning("هذه اللوحة لا تحكم على السيولة والتحصيل والديون. لإكمال قراءة CFO نحتاج كشف بنك وأعمار العملاء والموردين.")
+                if has_liquidity_files(st.session_state.get("files", [])):
 
+                    st.info(f"تم إرفاق مصادر السيولة والتحصيل: {liquidity_files_summary(st.session_state.get('files', []))}. الخطوة التالية هي بناء صفحة السيولة والتحصيل.")
+
+                else:
+
+                    st.warning("هذه اللوحة لا تحكم على السيولة والتحصيل والديون. لإكمال قراءة CFO نحتاج كشف بنك وأعمار العملاء والموردين.")
             elif tab_name in ["Revenue", "الإيرادات"]:
                 section_header("تحليل الإيرادات وجودتها وجودتها")
                 if revenue_model and not revenue_model.get("monthly_revenue", pd.DataFrame()).empty:
@@ -616,8 +625,13 @@ if st.session_state.models:
                 with c4:
                     kpi_card("مؤشر الربحية", f"{safe_score:.0f}/100", "ليس مؤشراً للصحة المالية الكاملة")
 
-                st.warning("تنبيه مهم: هذه الصفحة تقيس الربحية والتكاليف ونقطة التعادل فقط. لا تحكم على السيولة أو التحصيل أو الديون دون ملفات إضافية.")
+                if has_liquidity_files(st.session_state.get("files", [])):
 
+                    st.info(f"تم إرفاق ملفات سيولة وتحصيل: {liquidity_files_summary(st.session_state.get('files', []))}. هذه الصفحة للربحية، وسيتم تحليل النقد في صفحة السيولة.")
+
+                else:
+
+                    st.warning("تنبيه مهم: هذه الصفحة تقيس الربحية والتكاليف ونقطة التعادل فقط. لا تحكم على السيولة أو التحصيل أو الديون دون ملفات إضافية.")
                 render_insight_panel(
                     summary["title"],
                     summary["risk"],

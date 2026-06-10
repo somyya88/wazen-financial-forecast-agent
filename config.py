@@ -1,4 +1,4 @@
-APP_NAME = "Wazen CFO Intelligence Agent V11.4"
+APP_NAME = "Wazen CFO Intelligence Agent V11.5"
 
 WAZEN_BLUE = "#17479E"
 WAZEN_ORANGE = "#FAA61A"
@@ -23,6 +23,8 @@ SOURCE_ROLES = [
     "expense_detail_source",
     "validation_source",
     "cash_source",
+    "ar_aging_source",
+    "ap_aging_source",
     "supporting_source",
     "ignored",
 ]
