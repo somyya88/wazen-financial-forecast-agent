@@ -48,7 +48,7 @@ if "mapping_signature" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.4</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.5</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.button("تحديث / مسح النموذج السابق"):
@@ -233,7 +233,7 @@ if st.session_state.files:
             st.session_state.expense_mapping_saved = False
             st.session_state.mapping_signature = current_signature
 
-        st.info("استخدم الفلاتر للوصول إلى البنود المطلوبة، ثم عدّل التصنيف أو نوع التكلفة واضغط حفظ. التصنيف يستخدم OpenAI عند توفر الربط، ويعود إلى قواعد محاسبية محلية عند تعذر الاتصال. يجب مراجعة التصنيف قبل اعتماد النموذج.")
+        st.info("استخدم الفلاتر للوصول إلى البنود المطلوبة، ثم عدّل التصنيف أو نوع التكلفة واضغط حفظ. التصنيف يستخدم OpenAI عند توفر الربط، ثم يرتب الحسابات للتدقيق حسب قائمة الدخل: تشغيل مباشر، إداري، تسويقي، تمويلي، أخرى. يجب مراجعة التصنيف قبل اعتماد النموذج.")
 
         c_map1, c_map2, c_map3 = st.columns([1, 1, 2])
         with c_map1:

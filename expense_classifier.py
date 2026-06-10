@@ -258,7 +258,47 @@ def apply_smart_classification(mapping_df: pd.DataFrame, use_openai=True, batch_
     out["classification_confidence"] = confidences
     out["classification_reason"] = reasons
     out["classification_source"] = sources
+    out["display_group"] = out["user_category"].apply(expense_display_group)
+    out["display_order"] = out["user_category"].apply(expense_display_order)
+    if "_original_order" not in out.columns:
+        out["_original_order"] = range(len(out))
     return out
+
+
+def expense_display_group(category):
+    cat = str(category or "")
+    if cat in ["Cost of Revenue", "Purchases", "COGS", "Fuel", "Spare Parts", "Maintenance", "Utilities"]:
+        return "1. تكلفة الإيراد / تشغيل مباشر"
+    if cat in ["Administrative Expenses", "Admin Opex", "Payroll", "Rent", "Depreciation"]:
+        return "2. مصاريف إدارية وعمومية"
+    if cat in ["Selling & Marketing", "Marketing", "Selling Opex"]:
+        return "3. مصاريف بيع وتسويق"
+    if cat in ["Finance Costs", "Bank Charges"]:
+        return "4. مصاريف تمويلية وبنكية"
+    return "5. مصاريف أخرى"
+
+def expense_display_order(category):
+    cat = str(category or "")
+    order = {
+        "Cost of Revenue": 10,
+        "Purchases": 11,
+        "COGS": 12,
+        "Fuel": 13,
+        "Spare Parts": 14,
+        "Maintenance": 15,
+        "Utilities": 16,
+        "Payroll": 20,
+        "Rent": 21,
+        "Administrative Expenses": 22,
+        "Depreciation": 23,
+        "Selling & Marketing": 30,
+        "Marketing": 31,
+        "Selling Opex": 32,
+        "Finance Costs": 40,
+        "Bank Charges": 41,
+        "Other Opex": 50,
+    }
+    return order.get(cat, 99)
 
 def normalize_for_pnl_category(category):
     cat = str(category or "")

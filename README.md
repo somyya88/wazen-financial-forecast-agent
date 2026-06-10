@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V9.4
+# Wazen CFO Intelligence Agent V9.5
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
 
@@ -193,3 +193,18 @@ Only one file can be selected as the official revenue source.
 - Falls back to local rule-based classification when OpenAI is unavailable.
 - Adds classification confidence, source, and reason columns to mapping.
 - Keeps management P&L category structure from V9.3.
+
+## V9.5 additions
+
+- Preserves audit-friendly expense mapping order.
+- Adds display groups:
+  - Cost of Revenue / Direct Operations
+  - General & Administrative
+  - Selling & Marketing
+  - Finance & Bank
+  - Other Expenses
+- Adds sorting options:
+  - by management income statement order
+  - by original trial balance order
+  - by amount
+- Adds display group column to Expense Mapping for easier review.

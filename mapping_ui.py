@@ -58,6 +58,16 @@ def render_expense_mapping_editor(mapping_df: pd.DataFrame, key_prefix: str = "e
     with c8:
         max_rows = st.number_input("عدد الصفوف", min_value=10, max_value=500, value=120, step=10, key=f"{key_prefix}_rows")
 
+    c9, c10 = st.columns([1, 3])
+    with c9:
+        sort_mode = st.selectbox(
+            "ترتيب العرض",
+            ["حسب ترتيب قائمة الدخل", "حسب ترتيب ميزان المراجعة", "حسب أعلى مبلغ"],
+            key=f"{key_prefix}_sort_mode",
+        )
+    with c10:
+        st.caption("يفضل التدقيق على ترتيب قائمة الدخل: تشغيل مباشر، إداري، تسويقي، تمويلي، أخرى.")
+
     filtered = base.copy()
     if search_text:
         filtered = filtered[filtered["account_name"].astype(str).str.contains(search_text, case=False, na=False)]
@@ -78,7 +88,21 @@ def render_expense_mapping_editor(mapping_df: pd.DataFrame, key_prefix: str = "e
     if min_amount > 0:
         filtered = filtered[filtered["amount"] >= min_amount]
 
-    filtered = filtered.sort_values("amount", ascending=False).head(int(max_rows))
+    if "display_group" not in filtered.columns:
+        filtered["display_group"] = filtered["user_category"].astype(str)
+    if "display_order" not in filtered.columns:
+        filtered["display_order"] = 99
+    if "_original_order" not in filtered.columns:
+        filtered["_original_order"] = filtered.index
+
+    if sort_mode == "حسب أعلى مبلغ":
+        filtered = filtered.sort_values("amount", ascending=False)
+    elif sort_mode == "حسب ترتيب ميزان المراجعة":
+        filtered = filtered.sort_values("_original_order", ascending=True)
+    else:
+        filtered = filtered.sort_values(["display_order", "_original_order"], ascending=[True, True])
+
+    filtered = filtered.head(int(max_rows))
 
     total_amount = base["amount"].sum()
     shown_amount = filtered["amount"].sum()
@@ -94,10 +118,11 @@ def render_expense_mapping_editor(mapping_df: pd.DataFrame, key_prefix: str = "e
     st.caption("التعديلات تتم على الصفوف المعروضة فقط، ثم تُدمج تلقائياً مع كامل جدول التصنيف عند الحفظ.")
 
     edited = st.data_editor(
-        filtered[[c for c in ["account_name", "current_category", "user_category", "cost_behavior", "amount", "classification_confidence", "classification_source", "classification_reason"] if c in filtered.columns]],
+        filtered[[c for c in ["display_group", "account_name", "current_category", "user_category", "cost_behavior", "amount", "classification_confidence", "classification_source", "classification_reason"] if c in filtered.columns]],
         use_container_width=True,
         hide_index=False,
         column_config={
+            "display_group": st.column_config.TextColumn("مجموعة العرض", disabled=True),
             "account_name": st.column_config.TextColumn("الحساب", disabled=True),
             "current_category": st.column_config.TextColumn("التصنيف المقترح", disabled=True),
             "user_category": st.column_config.SelectboxColumn("التصنيف المعتمد", options=CATEGORY_OPTIONS, required=True),
