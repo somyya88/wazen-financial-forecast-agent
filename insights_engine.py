@@ -156,3 +156,63 @@ def build_forecast_insights(forecast_df: pd.DataFrame, pnl_model: dict) -> dict:
             "التوقع الحالي مبني على متوسطات شهرية أولية، ويحتاج لاحقاً إلى ربطه بعدد العملاء والتحصيل والطاقة التشغيلية.",
         ]
     }
+
+
+def build_expense_insights(pnl_model: dict, expense_model: dict | None) -> dict:
+    revenue = _safe_float(pnl_model.get("revenue", 0))
+    if not expense_model or expense_model.get("by_category", pd.DataFrame()).empty:
+        return {
+            "status": "بيانات مصاريف غير كافية",
+            "risk": "لا يمكن تحليل كفاءة الإنفاق دون ملف مصاريف واضح أو تصنيف بنود المصاريف.",
+            "decision": "الإجراء المقترح: رفع ملف مصاريف شهري مفصل وربط كل بند بتصنيف واضح.",
+            "bullets": [],
+            "expense_ratio_df": pd.DataFrame(),
+        }
+
+    cat = expense_model["by_category"].copy()
+    cat["amount"] = pd.to_numeric(cat["amount"], errors="coerce").fillna(0)
+    cat["النسبة من الإيراد"] = cat["amount"] / revenue if revenue else 0
+
+    max_row = cat.sort_values("amount", ascending=False).iloc[0]
+    max_cat = str(max_row.get("category", ""))
+    max_amount = _safe_float(max_row.get("amount", 0))
+    max_ratio = _safe_float(max_row.get("النسبة من الإيراد", 0))
+
+    other_rows = cat[cat["category"].astype(str).str.contains("Other", case=False, na=False)]
+    other_amount = _safe_float(other_rows["amount"].sum()) if not other_rows.empty else 0
+    other_ratio = other_amount / revenue if revenue else 0
+
+    if other_ratio > 0.15:
+        status = "تصنيف المصاريف يحتاج تفصيل"
+        risk = f"بند Other Opex مرتفع ويمثل {other_ratio*100:.1f}% من الإيرادات، ما يقلل دقة قرارات خفض التكاليف."
+        decision = "الإجراء المقترح: تفصيل بنود Other Opex أولاً، ثم إعادة بناء تحليل المصاريف ونقطة التعادل."
+    elif max_ratio > 0.20:
+        status = "تركز مصاريف واضح"
+        risk = f"أكبر بند مصاريف هو {max_cat} ويمثل {max_ratio*100:.1f}% من الإيرادات."
+        decision = "الإجراء المقترح: مراجعة هذا البند وتحديد هل هو ثابت أم قابل للتخفيض."
+    else:
+        status = "هيكل مصاريف مقبول مبدئياً"
+        risk = "لا يظهر تركز حاد في بند واحد، لكن يجب متابعة تطور المصاريف شهرياً مقابل الإيرادات."
+        decision = "الإجراء المقترح: اعتماد متابعة شهرية لنسبة المصاريف من الإيراد."
+
+    ratio_df = cat.rename(columns={"category": "التصنيف", "amount": "المبلغ"})
+    ratio_df["التقييم"] = ratio_df["النسبة من الإيراد"].apply(lambda x: "مرتفع" if x > 0.20 else ("متوسط" if x > 0.10 else "مقبول"))
+
+    return {
+        "status": status,
+        "risk": risk,
+        "decision": decision,
+        "bullets": [
+            f"أكبر بند مصاريف: {max_cat} بقيمة {max_amount:,.0f}.",
+            f"نسبة أكبر بند من الإيراد: {max_ratio*100:.1f}%.",
+            f"نسبة Other Opex من الإيراد: {other_ratio*100:.1f}%.",
+        ],
+        "expense_ratio_df": ratio_df[["التصنيف", "المبلغ", "النسبة من الإيراد", "التقييم"]],
+    }
+
+def build_forecast_assumptions_table():
+    return pd.DataFrame([
+        ["متحفظ", "Conservative", "انخفاض تدريجي في الإيراد", "ارتفاع تدريجي في المصاريف", "اختبار قدرة النشاط على تحمل ضغط السوق"],
+        ["أساسي", "Base", "استمرار متوسط الأداء الحالي", "ثبات نسبي في المصاريف", "قياس استمرار الوضع الحالي دون توسع"],
+        ["نمو", "Growth", "زيادة الإيراد فوق المتوسط الحالي", "ارتفاع محدود في المصاريف", "اختبار أثر التوسع المنضبط"],
+    ], columns=["السيناريو", "Scenario", "فرضية الإيراد", "فرضية المصاريف", "هدف السيناريو"])

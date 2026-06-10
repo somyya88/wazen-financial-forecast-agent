@@ -21,8 +21,9 @@ from analysis_router import tabs_for_mode
 from theme import apply_theme
 from cards import kpi_card, section_header, message_box
 from charts import line_chart, bar_chart, pie_chart
-from insights_engine import build_ratio_insights, build_breakeven_insights, build_forecast_insights
-from display_utils import render_pnl_statement, render_monthly_profitability, render_ratios_table, render_simple_financial_table, sort_month_df, render_insight_panel
+from data_quality_engine import build_source_reconciliation, build_data_quality_score
+from insights_engine import build_ratio_insights, build_breakeven_insights, build_forecast_insights, build_expense_insights, build_forecast_assumptions_table
+from display_utils import render_pnl_statement, render_monthly_profitability, render_ratios_table, render_simple_financial_table, sort_month_df, render_insight_panel, render_breakeven_summary, render_reconciliation_table
 from excel_pack import build_excel_pack
 
 st.set_page_config(page_title=APP_NAME, page_icon="📊", layout="wide")
@@ -45,7 +46,7 @@ if "mapping_signature" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.0</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.1</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.button("تحديث / مسح النموذج السابق"):
@@ -444,7 +445,7 @@ if st.session_state.models:
                     st.info("لا توجد خريطة تصنيف معتمدة.")
 
             elif tab_name in ["Expenses", "Top Expenses", "Cost Structure"]:
-                st.subheader("تحليل المصاريف")
+                st.subheader("كفاءة الإنفاق وهيكل التكاليف")
                 if expense_model:
                     c1, c2 = st.columns(2)
                     with c1:
@@ -476,7 +477,7 @@ if st.session_state.models:
                     st.info("لم يتم اختيار أو قراءة مصدر مصاريف رسمي.")
 
             elif tab_name == "Break-even":
-                st.subheader("تحليل نقطة التعادل")
+                st.subheader("نقطة التعادل وهامش الأمان")
                 st.info(breakeven_model.get("note", ""))
                 be_insights = build_breakeven_insights(pnl_model, breakeven_model)
                 render_insight_panel(
@@ -487,11 +488,7 @@ if st.session_state.models:
                     be_insights["bullets"],
                 )
                 be_summary = breakeven_model.get("summary", pd.DataFrame()).copy()
-                render_simple_financial_table(
-                    be_summary,
-                    columns=["العربي", "English", "Value"],
-                    money_cols=["Value"],
-                )
+                render_breakeven_summary(be_summary)
                 st.markdown("#### السيناريوهات")
                 scenarios_df = breakeven_model.get("scenarios", pd.DataFrame()).copy()
                 render_simple_financial_table(
@@ -502,7 +499,7 @@ if st.session_state.models:
                 )
 
             elif tab_name == "Forecast":
-                st.subheader("التوقعات والسيناريوهات المالية")
+                st.subheader("السيناريوهات المستقبلية واختبار الضغط")
                 st.info(models.get("forecast_note", ""))
                 forecast_insights = build_forecast_insights(forecast_model, pnl_model)
                 render_insight_panel(
@@ -512,15 +509,34 @@ if st.session_state.models:
                     forecast_insights["decision"],
                     forecast_insights["bullets"],
                 )
+                st.markdown("#### فرضيات السيناريوهات")
+                render_simple_financial_table(
+                    build_forecast_assumptions_table(),
+                    columns=["السيناريو", "Scenario", "فرضية الإيراد", "فرضية المصاريف", "هدف السيناريو"],
+                )
+
                 if forecast_insights.get("summary_df") is not None and not forecast_insights.get("summary_df").empty:
                     st.markdown("#### ملخص السيناريوهات")
                     render_simple_financial_table(
                         forecast_insights["summary_df"],
-                        columns=["السيناريو", "Scenario", "متوسط الإيراد المتوقع", "متوسط الربح المتوقع", "هامش الربح المتوقع"],
-                        money_cols=["متوسط الإيراد المتوقع", "متوسط الربح المتوقع"],
+                        columns=["السيناريو", "Scenario", "متوسط الإيراد المتوقع", "متوسط الربح المتوقع", "أقل ربح متوقع", "هامش الربح المتوقع"],
+                        money_cols=["متوسط الإيراد المتوقع", "متوسط الربح المتوقع", "أقل ربح متوقع"],
                         percent_cols=["هامش الربح المتوقع"],
                     )
                 if not forecast_model.empty:
+                    try:
+                        _worst = forecast_model.copy()
+                        _worst["forecast_profit"] = pd.to_numeric(_worst["forecast_profit"], errors="coerce")
+                        _worst = _worst.sort_values("forecast_profit").iloc[0]
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            kpi_card("أسوأ شهر متوقع", str(_worst.get("month", "—")), "حسب أقل ربح متوقع")
+                        with c2:
+                            kpi_card("أقل ربح متوقع", f"{float(_worst.get('forecast_profit', 0)):,.0f}", "اختبار ضغط للربحية")
+                        with c3:
+                            kpi_card("حد الإيراد الحرج", f"{float(_worst.get('forecast_revenue', 0)):,.0f}", "يحتاج مراقبة شهرية")
+                    except Exception:
+                        pass
                     st.markdown("#### تفاصيل التوقعات الشهرية")
                     forecast_show = forecast_model.copy()
                     render_simple_financial_table(

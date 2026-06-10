@@ -248,3 +248,28 @@ def render_insight_panel(title: str, status: str, risk: str, decision: str, bull
     </div>
     """
     st.markdown(html_block, unsafe_allow_html=True)
+
+
+def render_breakeven_summary(summary_df: pd.DataFrame):
+    if summary_df is None or summary_df.empty:
+        st.info("لا توجد بيانات كافية لنقطة التعادل.")
+        return
+    percent_items = {"Variable Cost Ratio", "Contribution Margin", "Margin of Safety", "نسبة التكلفة المتغيرة", "هامش المساهمة", "هامش الأمان"}
+    rows = []
+    for _, r in summary_df.iterrows():
+        english = r.get("English", "")
+        arabic = r.get("العربي", "")
+        value = r.get("Value", 0)
+        formatted = fmt_percent(value, 1) if str(english) in percent_items or str(arabic) in percent_items else fmt_money(value, 0)
+        rows.append([arabic, english, formatted])
+    render_html_table(pd.DataFrame(rows, columns=["العربي", "English", "القيمة"]), columns=["العربي", "English", "القيمة"])
+
+def render_reconciliation_table(df: pd.DataFrame):
+    if df is None or df.empty:
+        st.info("لا توجد بيانات كافية للمطابقة.")
+        return
+    render_html_table(
+        df,
+        columns=["البند", "English", "من ميزان المراجعة", "من الملفات الشهرية", "الفرق", "التقييم"],
+        money_cols=["من ميزان المراجعة", "من الملفات الشهرية", "الفرق"],
+    )
