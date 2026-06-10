@@ -62,7 +62,7 @@ if "model_ready" not in st.session_state:
 if "show_setup" not in st.session_state:
     st.session_state.show_setup = False
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.5</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.6</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.session_state.get("models") and st.session_state.get("model_ready", False):
@@ -120,53 +120,8 @@ with st.sidebar:
     revenue_definition = st.selectbox("تعريف الإيراد", REVENUE_DEFINITIONS)
 
 
-# EXECUTIVE_ONLY_VIEW_V102
-if st.session_state.get("models") and st.session_state.get("model_ready", False) and not st.session_state.get("show_setup", False):
-    models = st.session_state.models
-    revenue_model = models.get("revenue_model")
-    expense_model = models.get("expense_model")
-    pnl_model = models.get("pnl_model", {})
-    breakeven_model = models.get("breakeven_model", {})
-    ratio_model = models.get("ratio_model", {})
-    business_sector = locals().get("business_sector", "خدمي")
-    country = locals().get("country", "السعودية")
-    activity = locals().get("activity", locals().get("industry", ""))
-
-    section_header("لوحة المؤشرات التنفيذية")
-    st.caption(f"قطاع التحليل: {business_sector} | البلد: {country} | طبيعة النشاط: {activity}")
-
-    exec_kpis = build_executive_kpis(pnl_model, expense_model)
-    performance_scorecard = build_financial_performance_scorecard(pnl_model, breakeven_model)
-    dash_diag = build_owner_diagnosis(pnl_model, breakeven_model, expense_model, business_sector, country, activity)
-
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        kpi_card("الإيرادات التشغيلية", f"{exec_kpis.get('operating_revenue', 0):,.0f}", "إيراد النشاط الأساسي")
-    with c2:
-        kpi_card("صافي الربح", f"{exec_kpis.get('net_profit', 0):,.0f}", f"هامش صافي الربح {exec_kpis.get('net_margin', 0)*100:.1f}%")
-    with c3:
-        kpi_card("هامش الأمان", f"{breakeven_model.get('margin_of_safety', 0)*100:.1f}%", "المسافة قبل نقطة التعادل")
-    with c4:
-        kpi_card("مؤشر الأداء والربحية", f"{performance_scorecard.get('score', 0):.0f}/100", "مؤشر مبني على الهوامش والتعادل")
-
-    st.markdown(f"""
-    <div class="executive-brief compact">
-        <div class="brief-title">الخلاصة خلال 60 ثانية</div>
-        <div class="brief-text">{dash_diag['situation']}</div>
-        <div class="brief-action"><strong>الإجراء الأهم الآن:</strong> {dash_diag['action']}</div>
-        <div class="brief-subtext"><strong>مؤشر المتابعة:</strong> {dash_diag['next_kpi']}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    sector_scorecard_dash = build_sector_safety_scorecard(pnl_model, breakeven_model, business_sector, country, activity)
-    top_action_dash = build_top_5_actions(sector_scorecard_dash)
-    if top_action_dash is not None and not top_action_dash.empty:
-        first_action = top_action_dash.iloc[0]
-        st.warning(f"أولوية التنفيذ الأولى: {first_action['المشكلة']} — {first_action['الإجراء المطلوب']}")
-
-    st.info("للاطلاع على الإعدادات، جودة البيانات، التصنيف، والجداول التفصيلية فعّل خيار: إظهار الإعداد والتحقق أعلى الصفحة.")
-    st.stop()
-
+# EXECUTIVE_ONLY_VIEW_REMOVED_V116
+# Dashboard is rendered only inside Dashboard tab.
 
 section_header("1. رفع الملفات واكتشاف نوعها")
 
@@ -414,7 +369,7 @@ if st.session_state.files:
         }
         st.session_state.model_ready = True
         st.session_state.show_setup = False
-        st.success("تم بناء النموذج المالي الأولي.")
+        st.success("تم بناء النموذج المالي الأولي. انتقل إلى تبويب Dashboard لعرض لوحة المؤشرات التنفيذية.")
 
 if st.session_state.models:
     models = st.session_state.models
@@ -457,7 +412,7 @@ if st.session_state.models:
     with c3:
         kpi_card("هامش الأمان", f"{breakeven_model.get('margin_of_safety', 0)*100:.1f}%", "المسافة قبل نقطة التعادل")
     with c4:
-        kpi_card("مؤشر الأداء والربحية", f"{performance_scorecard.get('score', 0):.0f}/100", "مؤشر مبني على الهوامش والتعادل")
+        kpi_card("مؤشر الربحية", f"{performance_scorecard.get('score', 0):.0f}/100", "لا يشمل السيولة والتحصيل")
 
     st.markdown(f"""
     <div class="executive-brief compact">
@@ -654,8 +609,6 @@ if st.session_state.models:
                     build_decision_action_plan(pnl_model, breakeven_model, expense_model, revenue_model.get("monthly_revenue", pd.DataFrame()) if revenue_model else pd.DataFrame())
                 )
 
-                st.markdown("#### ما الذي لا تغطيه هذه القراءة؟")
-                render_business_explanation_table(data_visibility_status(st.session_state.get("models", {})))
             elif tab_name == "تصنيف المصاريف":
                 st.subheader("تصنيف المصاريف المعتمد")
                 if expense_mapping_model is not None and not expense_mapping_model.empty:
