@@ -12,6 +12,7 @@ from validation_engine import validate_project
 from financial_model import build_basic_financial_model
 from period_engine import months_from_revenue_model, months_from_expense_model, common_months, filter_revenue_model, filter_expense_model
 from revenue_insight_engine import build_revenue_insights
+from revenue_quality_engine import build_revenue_quality
 from decision_quality_engine import build_formula_table, build_decision_action_plan, build_owner_ratios_summary, data_visibility_status, build_revenue_decision_table
 from sector_action_engine import build_sector_safety_scorecard, build_top_5_actions, build_scorecard_summary
 from executive_diagnosis_engine import build_owner_diagnosis, build_professional_actions
@@ -60,7 +61,7 @@ if "model_ready" not in st.session_state:
 if "show_setup" not in st.session_state:
     st.session_state.show_setup = False
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.2</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V11.3</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.session_state.get("models") and st.session_state.get("model_ready", False):
@@ -463,47 +464,73 @@ if st.session_state.models:
 
     for idx, tab_name in enumerate(active_tabs):
         with tabs[idx]:
-            if tab_name in ["Dashboard", "Revenue", "لوحة المؤشرات", "الإيرادات"]:
-                st.subheader("تحليل الإيرادات")
+            if tab_name in ["Dashboard", "لوحة المؤشرات"]:
+                section_header("لوحة المؤشرات التنفيذية")
+                st.caption(f"قطاع التحليل: {business_sector} | البلد: {country} | طبيعة النشاط: {activity}")
+
+                exec_kpis = build_executive_kpis(pnl_model, expense_model)
+                performance_scorecard = build_financial_performance_scorecard(pnl_model, breakeven_model)
+                dash_diag = build_owner_diagnosis(pnl_model, breakeven_model, expense_model, business_sector, country, activity)
+
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    kpi_card("الإيرادات التشغيلية", f"{exec_kpis.get('operating_revenue', 0):,.0f}", "إيراد النشاط الأساسي")
+                with c2:
+                    kpi_card("صافي الربح", f"{exec_kpis.get('net_profit', 0):,.0f}", f"هامش صافي الربح {exec_kpis.get('net_margin', 0)*100:.1f}%")
+                with c3:
+                    kpi_card("هامش الأمان", f"{breakeven_model.get('margin_of_safety', 0)*100:.1f}%", "المسافة قبل نقطة التعادل")
+                with c4:
+                    kpi_card("مؤشر الربحية", f"{min(float(performance_scorecard.get('score', 0) or 0), 85):.0f}/100", "لا يشمل السيولة والتحصيل")
+
+                st.markdown(f"""
+                <div class="executive-brief compact">
+                    <div class="brief-title">الخلاصة التنفيذية</div>
+                    <div class="brief-text">{dash_diag['situation']}</div>
+                    <div class="brief-action"><strong>الإجراء الأهم الآن:</strong> {dash_diag['action']}</div>
+                    <div class="brief-subtext"><strong>مؤشر المتابعة:</strong> {dash_diag['next_kpi']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                st.warning("هذه اللوحة لا تحكم على السيولة والتحصيل والديون. لإكمال قراءة CFO نحتاج كشف بنك وأعمار العملاء والموردين.")
+
+            elif tab_name in ["Revenue", "الإيرادات"]:
+                section_header("تحليل الإيرادات وجودتها وجودتها")
                 if revenue_model and not revenue_model.get("monthly_revenue", pd.DataFrame()).empty:
                     revenue_monthly = sort_month_df(revenue_model["monthly_revenue"], "month").copy()
                     revenue_monthly["revenue"] = pd.to_numeric(revenue_monthly["revenue"], errors="coerce").fillna(0)
-                    rev_insights = build_revenue_insights(revenue_monthly)
+                    rev_quality = build_revenue_quality(revenue_monthly)
 
                     c1, c2, c3, c4 = st.columns(4)
                     with c1:
-                        kpi_card("إجمالي الإيرادات", f"{rev_insights['cards'].get('total', 0):,.0f}", "خلال فترة التحليل")
+                        kpi_card("إجمالي الإيرادات", f"{rev_quality['cards'].get('total', 0):,.0f}", "خلال فترة التحليل")
                     with c2:
-                        kpi_card("متوسط الإيراد الشهري", f"{rev_insights['cards'].get('avg', 0):,.0f}", "خط أساس للتخطيط")
+                        kpi_card("متوسط شهري محافظ", f"{rev_quality['cards'].get('avg', 0):,.0f}", "ليس ضماناً للتوسع")
                     with c3:
-                        kpi_card("أعلى شهر", str(rev_insights['cards'].get('best_month', '—')), "أفضل شهر في الفترة")
+                        kpi_card("أعلى شهر", str(rev_quality['cards'].get('best_month', '—')), f"يمثل {rev_quality['cards'].get('max_share', 0)*100:.1f}%")
                     with c4:
-                        kpi_card("تذبذب الإيراد", f"{rev_insights['cards'].get('volatility', 0)*100:.1f}%", "كلما ارتفع صعب التخطيط")
+                        kpi_card("استقرار الإيراد", f"{rev_quality['cards'].get('stability_score', 0):.0f}/100", str(rev_quality['cards'].get('quality_status', '—')))
 
                     render_insight_panel(
-                        "قراءة الإيرادات",
-                        rev_insights["summary"],
-                        "الخطر في الإيرادات لا يظهر من الرقم الإجمالي فقط؛ بل من التذبذب أو تركّز الإيراد أو انخفاض الاتجاه.",
-                        rev_insights["action"],
+                        "قراءة CFO للإيرادات",
+                        rev_quality["narrative"],
+                        rev_quality["risk"],
+                        rev_quality["action"],
                         [
-                            "لا تعتمد على إجمالي الفترة وحده.",
-                            "قارن الإيراد بالمصاريف ونقطة التعادل.",
-                            "استخدم المتوسط المحافظ عند التخطيط للالتزامات الثابتة."
+                            "الإيراد الجيد ليس فقط رقماً كبيراً؛ بل يجب أن يكون قابلاً للتكرار والتحصيل.",
+                            "الارتفاع في شهر واحد لا يعني نمواً مستداماً.",
+                            "التوسع يجب أن يبنى على إيراد متكرر لا على شهر استثنائي."
                         ],
                     )
 
                     st.markdown("#### مؤشرات جودة الإيراد")
-                    render_business_explanation_table(build_revenue_decision_table(revenue_monthly))
+                    render_business_explanation_table(rev_quality["quality_table"])
 
-                    line_chart(revenue_monthly, "month", "revenue", "اتجاه الإيرادات")
-                    with st.expander("عرض تفاصيل الإيرادات الشهرية"):
-                        render_simple_financial_table(
-                            rev_insights["table"],
-                            columns=["الشهر", "الإيراد", "مقارنة بالمتوسط", "الحالة"],
-                            money_cols=["الإيراد", "مقارنة بالمتوسط"],
-                        )
+                    line_chart(revenue_monthly, "month", "revenue", "اتجاه الإيرادات الشهرية")
+
+                    with st.expander("عرض التفاصيل الشهرية للتدقيق فقط"):
+                        render_business_explanation_table(rev_quality["monthly_table"])
                 else:
-                    st.info("لا توجد بيانات إيرادات كافية.")
+                    st.info("لا توجد بيانات إيرادات شهرية كافية.")
             elif tab_name in ["Sector Safety", "معايير القطاع"]:
                 section_header("معايير السلامة القطاعية")
                 st.caption(f"القطاع: {business_sector} | البلد: {country} | طبيعة النشاط: {activity}")

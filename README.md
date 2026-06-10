@@ -1,4 +1,4 @@
-# Wazen CFO Intelligence Agent V11.2
+# Wazen CFO Intelligence Agent V11.3
 
 
 Streamlit-based CFO Intelligence Agent for reading multiple financial Excel files, assigning source roles, preventing duplicated revenue, analyzing expenses, validating data quality, and preparing the foundation for a professional CFO dashboard and Excel Pack.
@@ -294,3 +294,15 @@ Only one file can be selected as the official revenue source.
 - Adds formula-based calculation table with numerator/denominator.
 - Adds action plan with evidence, owner, and KPI.
 - Adds revenue quality indicators.
+## V11.3
+
+- Separates Dashboard from Revenue analysis.
+- Dashboard is now an executive overview only.
+- Revenue page now focuses on revenue quality:
+  - repeatability
+  - concentration of best month
+  - volatility
+  - monthly gap
+  - stability score
+  - CFO-style interpretation and action
+- Monthly revenue detail moved into an audit-only expander.
