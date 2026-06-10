@@ -11,6 +11,7 @@ from trial_balance_engine import parse_trial_balance
 from validation_engine import validate_project
 from financial_model import build_basic_financial_model
 from period_engine import months_from_revenue_model, months_from_expense_model, common_months, filter_revenue_model, filter_expense_model
+from sector_benchmarks import SECTOR_OPTIONS, COUNTRY_OPTIONS, get_sector_config, sector_benchmark_table, sector_notes_df
 from business_explainer_engine import explain_performance_score, explain_break_even, build_sensitivity_explanations, build_expense_quality
 from executive_insights_engine import build_financial_performance_scorecard, build_break_even_confidence, build_break_even_sensitivity, build_forecast_decision
 from executive_statement_engine import build_executive_kpis, build_executive_income_statement, build_executive_monthly_profitability
@@ -51,7 +52,7 @@ if "mapping_signature" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.8</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.9</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.button("تحديث / مسح النموذج السابق"):
@@ -79,7 +80,19 @@ with st.sidebar:
     """)
     st.divider()
     company_name = st.text_input("اسم الشركة", value="Wazen Client")
-    industry = st.text_input("نوع النشاط", value="تأجير قاطرات ومقطورات")
+    business_sector = st.selectbox(
+        "القطاع الرئيسي",
+        list(SECTOR_OPTIONS.keys()),
+        index=0,
+        help="يتم استخدام القطاع لاختيار معايير السلامة المالية المناسبة."
+    )
+    country = st.selectbox("البلد", COUNTRY_OPTIONS, index=0)
+    activity_options = get_sector_config(business_sector)["activities"]
+    activity = st.selectbox("طبيعة النشاط", activity_options, index=0)
+    custom_activity = st.text_input("وصف إضافي لطبيعة النشاط", value="")
+    if custom_activity.strip():
+        activity = custom_activity.strip()
+    industry = activity
     analysis_mode = st.selectbox("نوع التحليل", ANALYSIS_MODES)
     revenue_definition = st.selectbox("تعريف الإيراد", REVENUE_DEFINITIONS)
 
@@ -95,6 +108,10 @@ uploaded_files = st.file_uploader(
 
 if not uploaded_files:
     st.caption("ملاحظة: بعد اختيار الملفات يجب أن تظهر أسماؤها هنا. إذا لم تظهر، اضغطي زر تحديث / مسح النموذج السابق أعلى الصفحة.")
+
+business_sector = locals().get("business_sector", "خدمي")
+country = locals().get("country", "السعودية")
+activity = locals().get("activity", locals().get("business_activity", ""))
 
 if uploaded_files:
     st.success(f"تم اختيار {len(uploaded_files)} ملف/ملفات: " + "، ".join([f.name for f in uploaded_files]))
@@ -341,6 +358,7 @@ if st.session_state.models:
     exec_kpis = build_executive_kpis(pnl_model, expense_model)
     performance_scorecard = build_financial_performance_scorecard(pnl_model, breakeven_model)
     section_header("5. لوحة المؤشرات التنفيذية")
+    st.caption(f"قطاع التحليل: {business_sector} | البلد: {country} | طبيعة النشاط: {activity}")
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -420,7 +438,7 @@ if st.session_state.models:
             elif tab_name in ["Ratios"]:
                 st.subheader("تحليل النسب المالية")
                 ratios_df = ratio_model.get("ratios", pd.DataFrame())
-                score_explain = explain_performance_score(pnl_model, breakeven_model)
+                score_explain = explain_performance_score(pnl_model, breakeven_model, business_sector)
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     kpi_card("مؤشر الأداء والربحية", f"{score_explain['score']}/100", "مبني على الربحية والتكاليف والتعادل")
@@ -436,6 +454,15 @@ if st.session_state.models:
                     score_explain["recommendation"],
                     ["المؤشر ليس حكماً على السيولة أو التحصيل.", "الهدف منه تحديد أولويات الإدارة الداخلية.", "أي توصية توسع لا تُعتمد قبل ضبط المصاريف والتحصيل وجودة البيانات."],
                 )
+                st.markdown("#### معايير السلامة حسب القطاع")
+                render_business_explanation_table(
+                    sector_notes_df(business_sector, country, activity)
+                )
+                render_business_explanation_table(
+                    sector_benchmark_table(business_sector),
+                    percent_cols=["الحد الآمن", "حد المراقبة"]
+                )
+
                 st.markdown("#### كيف تم احتساب المؤشر؟")
                 render_business_explanation_table(score_explain["rows"])
                 message_box(ratio_model.get("biggest_risk", ""), "warning")

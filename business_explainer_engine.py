@@ -1,3 +1,4 @@
+from sector_benchmarks import evaluate_metric
 
 import pandas as pd
 AR_CATEGORY={"Cost of Revenue":"تكلفة الإيراد","Purchases":"المشتريات","Payroll":"الرواتب والأجور","Rent":"الإيجارات","Utilities":"الخدمات والمرافق","Maintenance":"الصيانة","Fuel":"الوقود والمحروقات","Spare Parts":"قطع الغيار","Depreciation":"الإهلاك","Finance Costs":"تكاليف التمويل","Bank Charges":"رسوم وعمولات بنكية","Selling & Marketing":"البيع والتسويق","Administrative Expenses":"مصاريف إدارية وعمومية","Other Opex":"مصاريف تشغيلية أخرى","Admin Opex":"مصاريف إدارية وعمومية","Marketing":"التسويق","Selling Opex":"مصاريف البيع","COGS":"تكلفة الإيراد"}
@@ -7,7 +8,7 @@ def sf(x):
 def pct(x): return f"{sf(x)*100:.1f}%"
 def money(x): return f"{sf(x):,.0f}"
 def ar_category(cat): return AR_CATEGORY.get(str(cat), str(cat))
-def explain_performance_score(pnl_model, breakeven_model=None):
+def explain_performance_score(pnl_model, breakeven_model=None, sector='خدمي'):
     revenue=sf(pnl_model.get('revenue',0)); gross=sf(pnl_model.get('gross_profit',0)); net=sf(pnl_model.get('net_profit',0)); cogs=sf(pnl_model.get('cogs',0)); opex=sf(pnl_model.get('opex',0)); mos=sf((breakeven_model or {}).get('margin_of_safety',0))
     gm=gross/revenue if revenue else 0; nm=net/revenue if revenue else 0; orat=opex/revenue if revenue else 0; dcr=cogs/revenue if revenue else 0
     rows=pd.DataFrame([
