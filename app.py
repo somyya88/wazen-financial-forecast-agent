@@ -11,6 +11,7 @@ from trial_balance_engine import parse_trial_balance
 from validation_engine import validate_project
 from financial_model import build_basic_financial_model
 from period_engine import months_from_revenue_model, months_from_expense_model, common_months, filter_revenue_model, filter_expense_model
+from executive_statement_engine import build_executive_kpis, build_executive_income_statement, build_executive_monthly_profitability
 from financial_statement_engine import build_pnl, build_management_income_statement, monthly_pnl
 from ratio_engine import build_ratios
 from breakeven_engine import build_breakeven
@@ -25,7 +26,7 @@ from data_quality_engine import build_source_reconciliation, build_data_quality_
 from insights_engine import build_ratio_insights, build_breakeven_insights, build_forecast_insights, build_expense_insights, build_forecast_assumptions_table
 from expense_classifier import apply_smart_classification
 from mapping_ui import render_expense_mapping_editor
-from display_utils import render_pnl_statement, render_monthly_profitability, render_ratios_table, render_simple_financial_table, sort_month_df, render_insight_panel, render_breakeven_summary, render_reconciliation_table
+from display_utils import render_pnl_statement, render_monthly_profitability, render_ratios_table, render_simple_financial_table, sort_month_df, render_insight_panel, render_breakeven_summary, render_reconciliation_table, render_executive_income_statement, render_executive_monthly_profitability
 from excel_pack import build_excel_pack
 
 st.set_page_config(page_title=APP_NAME, page_icon="📊", layout="wide")
@@ -48,7 +49,7 @@ if "mapping_signature" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.5</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V9.6</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">حوّل ملفاتك المالية إلى نموذج CFO يمنع تكرار الإيرادات ويقرأ المصاريف ويجهّز لوحة قرار تنفيذية.</p>', unsafe_allow_html=True)
 
 if st.button("تحديث / مسح النموذج السابق"):
@@ -335,37 +336,36 @@ if st.session_state.models:
     for check in validation_checks:
         message_box(f"**{check['check']}** — {check['message']}", check["level"])
 
-    section_header("5. Dashboard أولي")
+    exec_kpis = build_executive_kpis(pnl_model, expense_model)
+    section_header("5. لوحة المؤشرات التنفيذية")
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        kpi_card("الإيرادات / Revenue", f"{pnl_model.get('revenue', 0):,.0f}", "من ميزان المراجعة كمصدر رسمي")
+        kpi_card("الإيرادات التشغيلية", f"{exec_kpis.get('operating_revenue', 0):,.0f}", "إيراد النشاط الأساسي")
     with c2:
-        kpi_card("الربح التشغيلي / EBITDA", f"{pnl_model.get('ebitda', 0):,.0f}", "بعد تكلفة المبيعات والمصاريف")
+        kpi_card("مجمل الربح", f"{exec_kpis.get('gross_profit', 0):,.0f}", f"هامش مجمل الربح {exec_kpis.get('gross_margin', 0)*100:.1f}%")
     with c3:
-        kpi_card("صافي الربح / Net Profit", f"{pnl_model.get('net_profit', 0):,.0f}", "حسب قائمة الدخل من الميزان")
+        kpi_card("صافي الربح", f"{exec_kpis.get('net_profit', 0):,.0f}", f"هامش صافي الربح {exec_kpis.get('net_margin', 0)*100:.1f}%")
     with c4:
-        kpi_card("الصحة المالية / Health Score", f"{ratio_model.get('financial_health_score', 0):.0f}/100", ratio_model.get("biggest_risk", ""))
+        kpi_card("الصحة المالية", f"{ratio_model.get('financial_health_score', 0):.0f}/100", ratio_model.get("biggest_risk", ""))
 
     c5, c6, c7, c8 = st.columns(4)
     with c5:
-        kpi_card("المصاريف / Expenses", f"{pnl_model.get('total_expenses', 0):,.0f}", "من ميزان المراجعة كمصدر رسمي")
+        kpi_card("المصاريف التشغيلية", f"{exec_kpis.get('operating_expenses', 0):,.0f}", f"{exec_kpis.get('opex_ratio', 0)*100:.1f}% من الإيرادات")
     with c6:
-        kpi_card("إيراد التعادل / Break-even", f"{breakeven_model.get('breakeven_revenue', 0):,.0f}", "تقدير أولي")
+        kpi_card("إيراد التعادل", f"{breakeven_model.get('break_even_revenue', breakeven_model.get('breakeven_revenue', 0)):,.0f}", "الحد الأدنى لتغطية التكاليف")
     with c7:
-        kpi_card("فجوة التعادل / Break-even Gap", f"{breakeven_model.get('breakeven_gap', 0):,.0f}", "الإيرادات الحالية - التعادل")
+        kpi_card("هامش الأمان", f"{breakeven_model.get('margin_of_safety', 0)*100:.1f}%", "المسافة قبل الوصول للتعادل")
     with c8:
-        kpi_card("القرار القادم / Next Decision", "", ratio_model.get("next_decision", ""))
+        kpi_card("الإجراء المقترح", exec_kpis.get("next_action", "—"), exec_kpis.get("next_action_reason", ""))
 
     active_tabs = tabs_for_mode(analysis_mode)
-    section_header("6. الصفحات المفعلة حسب نوع التحليل")
-    st.write(" / ".join(active_tabs))
-
     tabs = st.tabs(active_tabs)
+
 
     for idx, tab_name in enumerate(active_tabs):
         with tabs[idx]:
-            if tab_name in ["Dashboard", "Revenue"]:
+            if tab_name in ["Dashboard", "Revenue", "لوحة المؤشرات", "الإيرادات"]:
                 st.subheader("تحليل الإيرادات")
                 if revenue_model and not revenue_model.get("monthly_revenue", pd.DataFrame()).empty:
                     revenue_monthly = sort_month_df(revenue_model["monthly_revenue"], "month").copy()
@@ -379,17 +379,12 @@ if st.session_state.models:
                 else:
                     st.info("لا توجد بيانات إيرادات كافية.")
 
-            elif tab_name == "P&L":
+            elif tab_name in ["P&L", "قائمة الدخل"]:
                 st.subheader("قائمة الدخل")
                 st.info(pnl_model.get("note", ""))
-                render_pnl_statement(pnl_model.get("pnl", pd.DataFrame()))
-
-                st.markdown("#### قائمة الدخل الإدارية")
-                st.caption("هذا العرض يفصل تكلفة الإيراد عن المصاريف الإدارية والتسويقية لقراءة هامش التشغيل بشكل أدق.")
-                try:
-                    render_pnl_statement(build_management_income_statement(pnl_model, expense_model))
-                except Exception:
-                    st.info("لا يمكن بناء قائمة الدخل الإدارية من البيانات الحالية.")
+                st.markdown("#### قائمة الدخل التنفيذية")
+                st.caption("عرض إداري موحد يفصل تكلفة الإيراد عن المصاريف الإدارية والتسويقية والتمويلية.")
+                render_executive_income_statement(build_executive_income_statement(pnl_model, expense_model))
 
                 st.markdown('<a id="expense-drilldown"></a>', unsafe_allow_html=True)
                 with st.expander("تفاصيل المصاريف التشغيلية من ملف المصروفات", expanded=False):
@@ -412,11 +407,12 @@ if st.session_state.models:
 
                 if not monthly_pnl_model.empty:
                     st.markdown("#### الربحية الشهرية")
-                    monthly_profitability_table = render_monthly_profitability(monthly_pnl_model, pnl_model)
+                    monthly_profitability_table = build_executive_monthly_profitability(monthly_pnl_model, pnl_model, expense_model)
+                    render_executive_monthly_profitability(monthly_profitability_table)
                     if monthly_profitability_table is not None and not monthly_profitability_table.empty:
                         chart_df = monthly_profitability_table[["الشهر", "صافي الربح"]].copy()
                         chart_df = chart_df.rename(columns={"الشهر": "month", "صافي الربح": "net_profit"})
-                        line_chart(chart_df, "month", "net_profit", "Monthly Net Profit")
+                        line_chart(chart_df, "month", "net_profit", "اتجاه صافي الربح الشهري")
 
             elif tab_name in ["Ratios"]:
                 st.subheader("تحليل النسب المالية")
@@ -473,7 +469,7 @@ if st.session_state.models:
                 else:
                     st.info("لم يتم اختيار أو قراءة مصدر مصاريف رسمي.")
 
-            elif tab_name == "Break-even":
+            elif tab_name in ["Break-even", "نقطة التعادل"]:
                 st.subheader("نقطة التعادل وهامش الأمان")
                 st.info(breakeven_model.get("note", ""))
                 be_insights = build_breakeven_insights(pnl_model, breakeven_model)
@@ -495,7 +491,7 @@ if st.session_state.models:
                     percent_cols=["Contribution Margin"],
                 )
 
-            elif tab_name == "Forecast":
+            elif tab_name in ["Forecast", "السيناريوهات"]:
                 st.subheader("السيناريوهات المستقبلية واختبار الضغط")
                 st.info(models.get("forecast_note", ""))
                 forecast_insights = build_forecast_insights(forecast_model, pnl_model)
@@ -553,14 +549,14 @@ if st.session_state.models:
                 else:
                     st.info("لا توجد بيانات توقع كافية.")
 
-            elif tab_name == "Glossary":
+            elif tab_name in ["Glossary", "القاموس"]:
                 st.subheader("قاموس المصطلحات المالية")
                 render_simple_financial_table(
                     glossary_model,
                     columns=["العربي", "English", "المعنى المبسط", "المعادلة", "لماذا يهم؟"],
                 )
 
-            elif tab_name == "Export":
+            elif tab_name in ["Export", "التصدير"]:
                 st.subheader("تصدير Excel CFO Pack")
                 excel_bytes = build_excel_pack(
                     st.session_state.file_rows,

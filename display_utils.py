@@ -273,3 +273,62 @@ def render_reconciliation_table(df: pd.DataFrame):
         columns=["البند", "English", "من ميزان المراجعة", "من الملفات الشهرية", "الفرق", "التقييم"],
         money_cols=["من ميزان المراجعة", "من الملفات الشهرية", "الفرق"],
     )
+
+
+def render_executive_income_statement(statement_df: pd.DataFrame):
+    if statement_df is None or statement_df.empty:
+        st.info("لا توجد بيانات كافية لقائمة الدخل.")
+        return
+
+    rows = []
+    for _, r in statement_df.iterrows():
+        row_type = str(r.get("row_type", "line"))
+        ar = r.get("العربي", "")
+        en = r.get("English", "")
+        amount = r.get("Amount", "")
+
+        if row_type == "section":
+            rows.append(f'<tr class="statement-section"><td colspan="3">{e(ar)}</td></tr>')
+            continue
+
+        cls = "statement-line"
+        if row_type == "total":
+            cls = "statement-total"
+        if row_type == "net":
+            cls = "statement-net"
+
+        amount_text = fmt_money(amount, 0)
+        rows.append(
+            f'<tr class="{cls}">'
+            f'<td class="ar">{e(ar)}</td>'
+            f'<td class="en">{e(en)}</td>'
+            f'<td class="num">{e(amount_text)}</td>'
+            f'</tr>'
+        )
+
+    html_table = f"""
+    <div class="wazen-table-wrap executive-statement-wrap">
+        <table class="wazen-table executive-statement">
+            <thead>
+                <tr>
+                    <th>البند</th>
+                    <th>المسمى الإنجليزي</th>
+                    <th>المبلغ</th>
+                </tr>
+            </thead>
+            <tbody>{''.join(rows)}</tbody>
+        </table>
+    </div>
+    """
+    st.markdown(html_table, unsafe_allow_html=True)
+
+def render_executive_monthly_profitability(df: pd.DataFrame):
+    if df is None or df.empty:
+        st.info("لا توجد بيانات شهرية كافية.")
+        return
+    render_html_table(
+        df,
+        columns=["الشهر", "الإيراد", "تكلفة الإيراد", "مجمل الربح", "هامش مجمل الربح", "المصاريف التشغيلية", "صافي الربح", "هامش صافي الربح"],
+        money_cols=["الإيراد", "تكلفة الإيراد", "مجمل الربح", "المصاريف التشغيلية", "صافي الربح"],
+        percent_cols=["هامش مجمل الربح", "هامش صافي الربح"],
+    )

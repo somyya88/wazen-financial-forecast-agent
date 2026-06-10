@@ -367,6 +367,68 @@ def apply_theme():
         margin-bottom: 8px;
     }
 
+
+    .executive-statement th {
+        text-align: right !important;
+    }
+
+    .executive-statement td.ar {
+        width: 42%;
+        text-align: right !important;
+        font-weight: 650;
+    }
+
+    .executive-statement td.en {
+        width: 36%;
+        direction: ltr;
+        text-align: left !important;
+        color: #475467;
+    }
+
+    .executive-statement td.num {
+        width: 22%;
+        text-align: left !important;
+        direction: ltr;
+        font-weight: 750;
+        color: #111827;
+    }
+
+    .executive-statement tr.statement-section td {
+        background: #F5F7FB !important;
+        color: #17479E;
+        font-weight: 900;
+        font-size: 17px;
+        border-top: 2px solid #D8E2F3;
+        padding-top: 16px;
+        padding-bottom: 10px;
+    }
+
+    .executive-statement tr.statement-total td {
+        background: #EAF2FF !important;
+        color: #123A7A;
+        font-weight: 900;
+        border-top: 2px solid #BFD2F4;
+    }
+
+    .executive-statement tr.statement-net td {
+        background: #EAF8F0 !important;
+        color: #065F46;
+        font-weight: 950;
+        border-top: 3px double #7BD6A5;
+        border-bottom: 2px solid #7BD6A5;
+        font-size: 17px;
+    }
+
+    .kpi-label {
+        direction: rtl;
+        text-align: right;
+    }
+
+    .kpi-value {
+        text-align: right !important;
+        direction: ltr;
+    }
+
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
