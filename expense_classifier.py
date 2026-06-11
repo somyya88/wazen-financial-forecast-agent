@@ -79,6 +79,9 @@ def classify_account_rule_based(account_name, amount=0, source_category=None, se
     if is_saas and _contains_any(text, ["استضافه", "استضافة", "سيرفر", "خوادم", "cloud", "aws", "hosting", "api", "دعم فني", "تنفيذ", "تشغيلية", "تشغيلي"]):
         add("Cost of Revenue", "Variable", 94, "تكلفة تقنية/تشغيلية مرتبطة بتقديم الخدمة البرمجية")
 
+    if is_saas and _contains_any(text, ["جمعيه", "جمعية", "قطاع ثالث", "مشروع", "مشاريع", "حملات", "تنفيذ", "خدمات قطاع"]):
+        add("Cost of Revenue", "Variable", 91, "في شركة برمجية/اشتراكات: مصروف مرتبط بمشروع أو عميل أو قطاع تشغيلي ويعامل كتكلفة إيراد ما لم يثبت العكس")
+
     if _contains_any(text, DIRECT_COST_KEYWORDS) or _contains_any(src, ["مشتريات", "cogs", "cost"]):
         behavior = "Variable"
         if _contains_any(text, ["صيانة", "صيانه", "كهرباء", "هاتف", "انترنت"]):
@@ -284,7 +287,15 @@ def apply_smart_classification(mapping_df: pd.DataFrame, sector_context="", use_
                 for local_idx, result in ai.items():
                     global_idx = start + local_idx
                     if 0 <= global_idx < len(categories):
-                        categories[global_idx], behaviors[global_idx], confidences[global_idx], reasons[global_idx], sources[global_idx] = result
+                        ai_cat, ai_beh, ai_conf, ai_reason, ai_source = result
+                        # لا نسمح للذكاء الصناعي بإلغاء تصنيف قاعدي واضح إلى Other Opex منخفض الثقة.
+                        # الهدف أن يقل العمل اليدوي لا أن يزيد.
+                        rule_conf = confidences[global_idx]
+                        rule_cat = categories[global_idx]
+                        if ai_cat == "Other Opex" and ai_conf < 70 and rule_cat != "Other Opex" and rule_conf >= 70:
+                            continue
+                        if ai_conf >= rule_conf or rule_cat == "Other Opex":
+                            categories[global_idx], behaviors[global_idx], confidences[global_idx], reasons[global_idx], sources[global_idx] = result
 
     out["current_category"] = categories
     out["user_category"] = categories

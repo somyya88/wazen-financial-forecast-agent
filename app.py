@@ -16,6 +16,7 @@ from validation_engine import validate_project
 from financial_model import build_basic_financial_model
 from financial_statement_engine import build_pnl, monthly_pnl
 from ratio_engine import build_ratios
+from comprehensive_financial_analysis import build_comprehensive_financial_analysis
 from breakeven_engine import build_breakeven
 from forecast_engine import build_forecast
 from glossary_engine import build_glossary
@@ -418,6 +419,9 @@ def build_models_from_session(revenue_definition: str | None = None):
     forecast_model, forecast_note = build_forecast(monthly_pnl_model)
     glossary_model = build_glossary()
     liquidity_model = build_liquidity_collections_model(st.session_state.files)
+    comprehensive_model = build_comprehensive_financial_analysis(
+        tb_model, pnl_model, expense_model, revenue_model, monthly_pnl_model, liquidity_model, refresh_business_profile()
+    )
 
     st.session_state.models = {
         "revenue_model": revenue_model,
@@ -435,6 +439,7 @@ def build_models_from_session(revenue_definition: str | None = None):
         "confirmed_months": confirmed_months,
         "expense_mapping": st.session_state.expense_mapping,
         "revenue_definition": revenue_definition,
+        "comprehensive_model": comprehensive_model,
     }
     st.session_state.liquidity_model = liquidity_model
     st.session_state.model_ready = True
@@ -463,7 +468,7 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.3</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.4</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
@@ -482,7 +487,7 @@ with st.sidebar:
         reset_all()
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
-    st.caption("V12.3: navigation guard + sector-aware expense classification + owner-ready readiness language")
+    st.caption("V12.4: Financial Ratios + Vertical/Horizontal Analysis + CFO Reading")
 
 
 # -----------------------------------------------------------------------------
@@ -727,15 +732,27 @@ elif page == "4. التشخيص التنفيذي":
         liq_diag = liquidity_cfo_narrative(liq_model, pnl_model)
 
         st.markdown("### التشخيص قبل الأرقام")
-        cfo_brief = build_cfo_executive_brief(exec_kpis, pnl_model, liq_model, liq_diag, profile)
-        tone_class = "danger" if cfo_brief["tone"] == "danger" else "ok" if cfo_brief["tone"] == "ok" else "focus"
+        full_model = models.get("comprehensive_model", {})
+        cfo_reading = full_model.get("cfo_reading") or {}
+        if cfo_reading:
+            headline = cfo_reading.get("headline", "")
+            diagnosis_text = cfo_reading.get("diagnosis", "")
+            cash_text = cfo_reading.get("liquidity", "")
+            action_text = cfo_reading.get("action", "")
+        else:
+            cfo_brief = build_cfo_executive_brief(exec_kpis, pnl_model, liq_model, liq_diag, profile)
+            headline = cfo_brief["headline"]
+            diagnosis_text = cfo_brief["issue"]
+            cash_text = cfo_brief["cash_line"]
+            action_text = cfo_brief["action"]
+        tone_class = "danger" if exec_kpis.get("net_profit",0) < 0 else "focus"
         st.markdown(f"""
         <div class="cfo-brief-pro">
             <h3>أكبر رسالة لصاحب العمل الآن</h3>
-            <p class="{tone_class}">{cfo_brief['headline']}</p>
-            <p><strong>لماذا؟</strong> {cfo_brief['issue']}</p>
-            <p><strong>السيولة والتحصيل:</strong> {cfo_brief['cash_line']}</p>
-            <p><strong>الإجراء العملي القادم:</strong> {cfo_brief['action']}</p>
+            <p class="{tone_class}">{headline}</p>
+            <p><strong>قراءة البيانات:</strong> {diagnosis_text}</p>
+            <p><strong>السيولة ورأس المال العامل:</strong> {cash_text}</p>
+            <p><strong>الإجراء العملي القادم:</strong> {action_text}</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -766,17 +783,17 @@ elif page == "4. التشخيص التنفيذي":
         st.markdown("#### بطاقات مختصرة")
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            kpi_card("Net Sales", f"{exec_kpis.get('operating_revenue',0):,.0f}", "إيراد النشاط")
+            kpi_card("صافي الإيرادات", f"{exec_kpis.get('operating_revenue',0):,.0f}", "إيراد النشاط")
         with c2:
-            kpi_card("Net Profit", f"{exec_kpis.get('net_profit',0):,.0f}", f"هامش {exec_kpis.get('net_margin',0)*100:.1f}%")
+            kpi_card("صافي الربح", f"{exec_kpis.get('net_profit',0):,.0f}", f"هامش {exec_kpis.get('net_margin',0)*100:.1f}%")
         with c3:
-            kpi_card("Margin of Safety", f"{breakeven_model.get('margin_of_safety',0)*100:.1f}%", "قبل نقطة التعادل")
+            kpi_card("هامش الأمان", f"{breakeven_model.get('margin_of_safety',0)*100:.1f}%", "قبل نقطة التعادل")
         with c4:
             cash_cards = (liq_model.get("cash") or {}).get("cards", {})
-            kpi_card("Cash", f"{cash_cards.get('ending_cash',0):,.0f}", "من تقرير السيولة إن توفر")
+            kpi_card("النقد", f"{cash_cards.get('ending_cash',0):,.0f}", "من تقرير السيولة إن توفر")
         with c5:
             runway = cash_cards.get("cash_runway_months")
-            kpi_card("Runway", "—" if runway is None else f"{runway:.1f} شهر", "مبدئي قبل تنظيف التحويلات")
+            kpi_card("فترة التغطية النقدية", "—" if runway is None else f"{runway:.1f} شهر", "مبدئي قبل تنظيف التحويلات")
 
 
 # -----------------------------------------------------------------------------
@@ -794,9 +811,79 @@ elif page == "5. مساحة التحليل":
         monthly_pnl_model = models.get("monthly_pnl_model", pd.DataFrame())
         breakeven_model = models.get("breakeven_model", {})
         liq_model = st.session_state.liquidity_model or build_liquidity_collections_model(st.session_state.files)
-        tabs = st.tabs(["جودة الإيراد", "الربحية", "السيولة والنقد", "التحصيل", "المصاريف", "معايير القطاع"])
+        full_model = models.get("comprehensive_model", {})
+        tabs = st.tabs(["قراءة البيانات", "النسب المالية", "التحليل الرأسي والأفقي", "جودة الإيراد", "الربحية", "السيولة والنقد", "التحصيل", "المصاريف", "معايير القطاع"])
 
         with tabs[0]:
+            st.subheader("قراءة البيانات المالية")
+            cfo_reading = full_model.get("cfo_reading", {})
+            if cfo_reading:
+                st.markdown(f"""
+                <div class="cfo-brief-pro">
+                    <h3>قراءة CFO من البيانات الحالية</h3>
+                    <p class="focus">{cfo_reading.get('headline','')}</p>
+                    <p><strong>التشخيص:</strong> {cfo_reading.get('diagnosis','')}</p>
+                    <p><strong>السيولة:</strong> {cfo_reading.get('liquidity','')}</p>
+                    <p><strong>الإجراء:</strong> {cfo_reading.get('action','')}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            data_reading = full_model.get("data_reading", pd.DataFrame())
+            if not data_reading.empty:
+                st.markdown("#### ما الذي قرأه الإيجنت من الملفات؟")
+                st.dataframe(data_reading, use_container_width=True, hide_index=True)
+            mgmt = full_model.get("management_pnl", {})
+            if mgmt and not mgmt.get("management_table", pd.DataFrame()).empty:
+                st.markdown("#### قائمة الدخل الإدارية بعد إعادة تصنيف تكلفة الإيراد")
+                st.caption("هذه القراءة تعالج المشكلة التي ظهرت في الشركات البرمجية: رواتب التشغيل والدعم والتنفيذ ليست دائمًا مصاريف إدارية؛ قد تكون تكلفة إيراد إذا كانت مرتبطة بتقديم الخدمة.")
+                st.dataframe(mgmt.get("management_table"), use_container_width=True, hide_index=True)
+            bs = (full_model.get("balance_sheet") or {})
+            if bs.get("available"):
+                st.markdown("#### المركز المالي التحليلي")
+                st.dataframe(bs.get("balance_sheet", pd.DataFrame()), use_container_width=True, hide_index=True)
+            else:
+                st.info("المركز المالي غير متاح قبل قراءة ميزان مراجعة صالح.")
+
+        with tabs[1]:
+            st.subheader("النسب المالية ومعايير السلامة")
+            st.caption("هذه النسب هي الحد الأدنى لأي محلل مالي: ربحية، سيولة، مديونية، وكفاءة. المعايير هنا إرشادية قابلة للتعديل حسب القطاع والمدينة ونموذج العمل.")
+            ratio_df = full_model.get("ratios", pd.DataFrame())
+            if not ratio_df.empty:
+                groups = list(ratio_df["المجموعة"].dropna().unique())
+                selected_groups = safe_multiselect("فلترة مجموعات النسب", groups, default=groups)
+                view = ratio_df[ratio_df["المجموعة"].isin(selected_groups)] if selected_groups else ratio_df
+                st.dataframe(view, use_container_width=True, hide_index=True)
+                st.markdown("#### قراءة سريعة")
+                risk_rows = ratio_df[ratio_df["الحكم"].isin(["خطر", "ضعيف"])]
+                if risk_rows.empty:
+                    st.success("لا تظهر مؤشرات خطر حادة ضمن النسب المحسوبة، لكن القرار النهائي يحتاج قراءة السيولة والتحصيل والتصنيف النهائي للمصاريف.")
+                else:
+                    for _, r in risk_rows.head(5).iterrows():
+                        st.warning(f"{r['المؤشر']}: {r['النتيجة']} — {r['القراءة']}")
+            else:
+                st.info("لا يمكن حساب النسب قبل بناء قائمة دخل ومركز مالي.")
+
+        with tabs[2]:
+            st.subheader("التحليل الرأسي والأفقي")
+            st.markdown("#### التحليل الرأسي لقائمة الدخل")
+            vi = full_model.get("vertical_income", pd.DataFrame())
+            if not vi.empty:
+                st.dataframe(vi, use_container_width=True, hide_index=True)
+            st.markdown("#### التحليل الرأسي للمركز المالي")
+            vb = full_model.get("vertical_balance", pd.DataFrame())
+            if not vb.empty:
+                st.dataframe(vb, use_container_width=True, hide_index=True)
+            st.markdown("#### التحليل الأفقي الشهري")
+            hm = full_model.get("horizontal_monthly", pd.DataFrame())
+            if not hm.empty:
+                st.dataframe(hm, use_container_width=True, hide_index=True)
+            else:
+                st.info("التحليل الأفقي الشهري يحتاج مبيعات ومصاريف شهرية مقروءة.")
+            st.markdown("#### أكبر تغيرات المركز المالي بين أول وآخر الفترة")
+            hb = full_model.get("horizontal_balance", pd.DataFrame())
+            if not hb.empty:
+                st.dataframe(hb, use_container_width=True, hide_index=True)
+
+        with tabs[3]:
             st.subheader("جودة الإيراد")
             if revenue_model and not revenue_model.get("monthly_revenue", pd.DataFrame()).empty:
                 rev_monthly = revenue_model["monthly_revenue"].copy()
@@ -815,25 +902,25 @@ elif page == "5. مساحة التحليل":
             else:
                 st.info("لا توجد بيانات إيرادات كافية.")
 
-        with tabs[1]:
+        with tabs[4]:
             st.subheader("الربحية وقائمة الدخل")
             render_executive_income_statement(build_executive_income_statement(pnl_model, expense_model))
             if monthly_pnl_model is not None and not monthly_pnl_model.empty:
                 st.markdown("#### الربحية الشهرية")
                 render_executive_monthly_profitability(build_executive_monthly_profitability(monthly_pnl_model, pnl_model, expense_model))
 
-        with tabs[2]:
+        with tabs[5]:
             st.subheader("السيولة النقدية")
             cash = liq_model.get("cash", {})
             if cash.get("available"):
                 cards = cash.get("cards", {})
                 c1,c2,c3,c4 = st.columns(4)
-                with c1: kpi_card("Cash In", f"{cards.get('total_cash_in',0):,.0f}", "داخلة خلال الفترة")
-                with c2: kpi_card("Cash Out", f"{cards.get('total_cash_out',0):,.0f}", "خارجة خلال الفترة")
-                with c3: kpi_card("Net Cash Flow", f"{cards.get('net_cash_flow',0):,.0f}", "صافي الحركة")
+                with c1: kpi_card("النقد الداخل", f"{cards.get('total_cash_in',0):,.0f}", "داخلة خلال الفترة")
+                with c2: kpi_card("النقد الخارج", f"{cards.get('total_cash_out',0):,.0f}", "خارجة خلال الفترة")
+                with c3: kpi_card("صافي الحركة النقدية", f"{cards.get('net_cash_flow',0):,.0f}", "صافي الحركة")
                 with c4:
                     runway = cards.get("cash_runway_months")
-                    kpi_card("Runway", "—" if runway is None else f"{runway:.1f} شهر", "مبدئي")
+                    kpi_card("فترة التغطية النقدية", "—" if runway is None else f"{runway:.1f} شهر", "مبدئي")
                 monthly = cash.get("monthly", pd.DataFrame())
                 if not monthly.empty:
                     st.dataframe(monthly, use_container_width=True, hide_index=True)
@@ -847,7 +934,7 @@ elif page == "5. مساحة التحليل":
                     st.success("تم تحديث تحليل السيولة.")
                     st.rerun()
 
-        with tabs[3]:
+        with tabs[6]:
             st.subheader("التحصيل وأعمار العملاء")
             ar = liq_model.get("ar", {})
             if ar.get("available"):
@@ -870,7 +957,7 @@ elif page == "5. مساحة التحليل":
                     st.success("تم تحديث تحليل التحصيل.")
                     st.rerun()
 
-        with tabs[4]:
+        with tabs[7]:
             st.subheader("المصاريف وهيكل التكلفة")
             if expense_model:
                 monthly_exp = expense_model.get("monthly_expenses", pd.DataFrame()).copy()
@@ -889,7 +976,7 @@ elif page == "5. مساحة التحليل":
             else:
                 st.info("لا توجد مصاريف كافية.")
 
-        with tabs[5]:
+        with tabs[8]:
             st.subheader("معايير السلامة حسب القطاع")
             profile = refresh_business_profile()
             scorecard = build_sector_safety_scorecard(pnl_model, breakeven_model, profile.get("sector","غير محدد"), profile.get("country",""), profile.get("activity",""))
@@ -947,10 +1034,10 @@ elif page == "6. استوديو السيناريوهات":
             "tax_payment": tax_payment,
         })
         c1,c2,c3,c4 = st.columns(4)
-        with c1: kpi_card("Net Sales", f"{res['net_sales']:,.0f}", f"تسرب تجاري {res['commercial_leakage']:,.0f}")
-        with c2: kpi_card("Net Profit", f"{res['net_profit']:,.0f}", "بعد أثر السيناريو")
-        with c3: kpi_card("Cash after 30 days", f"{res['ending_cash_30']:,.0f}", "تقدير أولي")
-        with c4: kpi_card("Runway", "—" if res['cash_runway_months'] is None else f"{res['cash_runway_months']:.1f} شهر", res["risk_level"])
+        with c1: kpi_card("صافي الإيرادات", f"{res['net_sales']:,.0f}", f"تسرب تجاري {res['commercial_leakage']:,.0f}")
+        with c2: kpi_card("صافي الربح", f"{res['net_profit']:,.0f}", "بعد أثر السيناريو")
+        with c3: kpi_card("النقد بعد 30 يوم", f"{res['ending_cash_30']:,.0f}", "تقدير أولي")
+        with c4: kpi_card("فترة التغطية النقدية", "—" if res['cash_runway_months'] is None else f"{res['cash_runway_months']:.1f} شهر", res["risk_level"])
 
 
 # -----------------------------------------------------------------------------
