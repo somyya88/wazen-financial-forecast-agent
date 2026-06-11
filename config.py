@@ -14,6 +14,8 @@ SUPPORTED_FILE_TYPES = [
     "cash_liquidity_report",
     "ar_aging",
     "ap_aging",
+    "customer_report",
+    "supplier_report",
     "invoice_sales",
     "payroll",
     "unknown",
@@ -28,6 +30,8 @@ SOURCE_ROLES = [
     "cash_source",
     "ar_aging_source",
     "ap_aging_source",
+    "customer_report_source",
+    "supplier_report_source",
     "supporting_source",
     "ignored",
 ]

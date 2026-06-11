@@ -15,6 +15,8 @@ LIQUIDITY_ROLES = {
 ENHANCEMENT_SIGNALS = {
     "revenue_detail_source": "تفاصيل المبيعات / العملاء / الأصناف",
     "expense_detail_source": "تفاصيل مصروفات إضافية",
+    "customer_report_source": "تقرير العملاء",
+    "supplier_report_source": "تقرير الموردين",
     "supporting_source": "مصدر داعم",
 }
 
@@ -42,11 +44,31 @@ def _avg_confidence(files: list[dict]) -> float:
     return sum(vals) / len(vals) if vals else 0.0
 
 
+
+
+def detect_branch_signal(files: list[dict]) -> dict:
+    """Detect whether uploaded files appear to include branch-level data."""
+    branch_cols = ["فرع", "الفرع", "branch", "location", "موقع", "مركز"]
+    hits = []
+    for f in files or []:
+        df = f.get("primary_df")
+        if df is None or getattr(df, "empty", True):
+            continue
+        cols = " ".join([str(c).lower() for c in df.columns])
+        sample = " ".join(df.astype(str).head(15).fillna("").values.flatten()).lower()
+        if any(k.lower() in cols or k.lower() in sample for k in branch_cols):
+            hits.append(f.get("file_name"))
+    return {"has_branch_signal": bool(hits), "files": hits}
+
+
 def build_readiness_profile(files: list[dict], business_profile: dict | None = None, models: dict | None = None) -> dict:
     role_map = _files_by_role(files)
     rows = []
     score = 0
     max_score = 100
+
+    branch_signal = detect_branch_signal(files)
+    wants_branch = bool(business_profile and str(business_profile.get("branch_mode", "")).startswith("إجمالي +"))
 
     checks = [
         ("Business Context", "سياق النشاط", bool(business_profile and business_profile.get("sector") and business_profile.get("country")), 10, "تحديد البلد والقطاع ضروري لتفسير نسب السلامة."),
@@ -56,7 +78,9 @@ def build_readiness_profile(files: list[dict], business_profile: dict | None = N
         ("Cash", "السيولة", _has_role(role_map, "cash_source"), 12, "تقرير السيولة أو كشوف البنك يرفع جودة قراءة النقد."),
         ("AR Aging", "أعمار العملاء", _has_role(role_map, "ar_aging_source"), 12, "أعمار العملاء تحول التحصيل من توصية عامة إلى قائمة عملاء وأرصدة."),
         ("AP Aging", "أعمار الموردين", _has_role(role_map, "ap_aging_source"), 8, "أعمار الموردين تكشف ضغط الالتزامات."),
-        ("Details", "تفاصيل ترفع الدقة", _has_role(role_map, "revenue_detail_source") or len(role_map.get("supporting_source", [])) > 0, 8, "تفاصيل العملاء/الأصناف/السنة السابقة ترفع دقة التنبؤ."),
+        ("Customer/Supplier Details", "تقارير العملاء والموردين", _has_role(role_map, "customer_report_source") or _has_role(role_map, "supplier_report_source"), 4, "تساعد في فهم تركّز العملاء والموردين، حتى لو لم تكن بديلًا عن أعمار الديون."),
+        ("Details", "تفاصيل ترفع الدقة", _has_role(role_map, "revenue_detail_source") or len(role_map.get("supporting_source", [])) > 0 or _has_role(role_map, "customer_report_source"), 4, "تفاصيل العملاء/الأصناف/السنة السابقة ترفع دقة التنبؤ."),
+        ("Branch Readiness", "تحليل الفروع", (not wants_branch) or branch_signal["has_branch_signal"], 5, "إذا كانت الشركة متعددة الفروع، نحتاج ملفًا يحتوي عمود الفرع أو تقارير منفصلة لكل فرع."),
         ("Model", "النموذج المالي", bool(models), 5, "بناء النموذج يتيح التشخيص والسيناريوهات."),
     ]
     for key, label, ok, pts, note in checks:
@@ -105,6 +129,7 @@ def build_readiness_profile(files: list[dict], business_profile: dict | None = N
         "missing": missing,
         "role_map": role_map,
         "avg_confidence": confidence,
+        "branch_signal": branch_signal,
     }
 
 
@@ -115,6 +140,8 @@ def build_missing_data_recommendations(profile: dict) -> pd.DataFrame:
         rows.append(["تحليل التحصيل", "ارفع أعمار ديون العملاء", "لإظهار العملاء المتأخرين بالأسماء والأرصدة وأولوية المتابعة."])
     if "السيولة" in missing:
         rows.append(["تحليل النقد", "ارفع تقرير السيولة النقدية أو كشوف البنك", "لحساب حركة النقد والـ Runway والتحقق من الربح النقدي."])
+    if "تقارير العملاء والموردين" in missing:
+        rows.append(["تركيز العملاء والموردين", "ارفع تقرير العملاء أو تقرير الموردين عند توفره", "يساعد في عرض الأسماء والأرصدة والتعاملات بشكل تفاعلي لاحقًا."])
     if "تفاصيل ترفع الدقة" in missing:
         rows.append(["دقة التنبؤ", "ارفع مبيعات السنة السابقة أو مبيعات الأصناف/العملاء", "لاستخراج الموسمية، المرتجعات، الخصومات، وتركيز العملاء."])
     if "ميزان المراجعة" in missing:

@@ -47,6 +47,12 @@ def detect_file_type(df: pd.DataFrame) -> DetectionResult:
     score["ar_aging"] = sum(k.lower() in cols or k.lower() in sample_text for k in ar_keywords)
     score["ap_aging"] = sum(k.lower() in cols or k.lower() in sample_text for k in ap_keywords)
 
+    # Customer / Supplier master or statement reports
+    customer_report_keywords = ["تقرير العملاء", "العملاء", "customer report", "customer statement", "كشف العملاء", "حساب العميل"]
+    supplier_report_keywords = ["تقرير الموردين", "الموردين", "supplier report", "vendor report", "كشف الموردين", "حساب المورد"]
+    score["customer_report"] = sum(k.lower() in cols or k.lower() in sample_text for k in customer_report_keywords)
+    score["supplier_report"] = sum(k.lower() in cols or k.lower() in sample_text for k in supplier_report_keywords)
+
     # Bank statement
     bank_keywords = ["bank", "بنك", "كشف", "statement", "transaction", "عملية", "رصيد", "balance", "iban"]
     score["bank_statement"] = sum(k.lower() in cols or k.lower() in sample_text for k in bank_keywords)
@@ -72,6 +78,12 @@ def detect_file_type(df: pd.DataFrame) -> DetectionResult:
         best_score = score[best_type]
     elif score.get("ap_aging", 0) >= 4 and "مورد" in sample_text:
         best_type = "ap_aging"
+        best_score = score[best_type]
+    elif score.get("customer_report", 0) >= 3 and "عميل" in sample_text and "عمر الدين" not in sample_text:
+        best_type = "customer_report"
+        best_score = score[best_type]
+    elif score.get("supplier_report", 0) >= 3 and "مورد" in sample_text and "عمر الدين" not in sample_text:
+        best_type = "supplier_report"
         best_score = score[best_type]
 
     # Better rule for wide monthly expense vs sales

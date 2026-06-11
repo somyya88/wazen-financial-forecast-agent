@@ -508,6 +508,68 @@ def apply_theme():
         color: #475467;
     }
 
+
+
+    /* V12.1 premium UX polish */
+    .block-container { padding-top: 2.0rem !important; max-width: 1280px !important; }
+    [data-testid="stSidebar"] .stRadio label { direction: rtl !important; text-align: right !important; }
+    [data-testid="stSidebar"] [role="radiogroup"] label {
+        border-radius: 14px; padding: 7px 8px; margin-bottom: 3px;
+        transition: all .18s ease-in-out;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] label:hover {
+        background: #F3F7FF;
+        transform: translateX(-2px);
+    }
+    .main-title {
+        color: #111827 !important;
+        font-size: 38px !important;
+        text-align: right !important;
+    }
+    .sub-title { color:#475467 !important; font-size:16px !important; }
+    .wazen-hero {
+        background: radial-gradient(circle at 10% 0%, rgba(250,166,26,.14), transparent 28%),
+                    linear-gradient(135deg, #FFFFFF 0%, #F6F9FF 62%, #EEF5FF 100%);
+        border: 1px solid #DCE7F7;
+        border-radius: 28px;
+        padding: 26px 30px;
+        box-shadow: 0 24px 70px rgba(23,71,158,.10);
+        margin: 0 0 22px 0;
+        position: relative;
+        overflow: hidden;
+    }
+    .wazen-hero:before {
+        content:""; position:absolute; right:-60px; top:-60px; width:180px; height:180px;
+        background: rgba(23,71,158,.08); border-radius: 50%;
+    }
+    .wazen-hero h2 { margin:0; color:#0B2E63; font-size:30px; font-weight:900; }
+    .wazen-hero p { margin:10px 0 0; color:#475467; line-height:1.9; font-size:16px; }
+    .ux-card-grid { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:14px; margin: 14px 0 24px; }
+    .ux-card {
+        background:#fff; border:1px solid #E1E8F3; border-radius:20px; padding:18px 18px;
+        box-shadow: 0 16px 36px rgba(16,24,40,.055); transition: all .18s ease-in-out;
+        min-height:132px;
+    }
+    .ux-card:hover { transform: translateY(-2px); box-shadow: 0 20px 46px rgba(23,71,158,.11); }
+    .ux-card-title { font-weight:900; color:#0B2E63; font-size:17px; margin-bottom:8px; }
+    .ux-card-text { color:#475467; line-height:1.8; font-size:14.5px; }
+    .required-badge, .optional-badge, .enhance-badge {
+        display:inline-block; border-radius:999px; padding:4px 10px; font-weight:800; font-size:12px; margin-bottom:8px;
+    }
+    .required-badge { background:#FFF1F2; color:#B42318; border:1px solid #FECDD3; }
+    .optional-badge { background:#F2F4F7; color:#475467; border:1px solid #EAECF0; }
+    .enhance-badge { background:#FFFAEB; color:#B54708; border:1px solid #FEDF89; }
+    .readiness-strip { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:14px; margin:14px 0 20px; }
+    .readiness-item { background:#fff; border:1px solid #E6EAF0; border-radius:18px; padding:16px; box-shadow:0 12px 30px rgba(16,24,40,.045); }
+    .readiness-item strong { color:#17479E; font-size:18px; }
+    .wazen-action-box {
+        background: linear-gradient(135deg,#0B2E63,#17479E); color:#fff; border-radius:22px;
+        padding:22px 24px; box-shadow: 0 22px 55px rgba(23,71,158,.22); margin:18px 0;
+    }
+    .wazen-action-box h3 { color:#fff !important; margin:0 0 8px; font-size:22px; }
+    .wazen-action-box p { color:#EEF5FF; line-height:1.9; margin:0; }
+    @media(max-width: 1000px){ .ux-card-grid, .readiness-strip{ grid-template-columns: 1fr; } }
+
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)

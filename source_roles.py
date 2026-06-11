@@ -10,6 +10,8 @@ def suggest_role(file_type: str) -> str:
         "cash_liquidity_report": "cash_source",
         "ar_aging": "ar_aging_source",
         "ap_aging": "ap_aging_source",
+        "customer_report": "customer_report_source",
+        "supplier_report": "supplier_report_source",
         "unknown": "supporting_source",
     }
     return mapping.get(file_type, "supporting_source")

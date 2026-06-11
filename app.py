@@ -109,6 +109,8 @@ def get_business_profile_from_inputs():
         "activity": st.session_state.get("activity", ""),
         "business_model": st.session_state.get("business_model", "غير محدد"),
         "sales_channel": st.session_state.get("sales_channel", "غير محدد"),
+        "branch_mode": st.session_state.get("branch_mode", "تحليل إجمالي فقط"),
+        "branch_count": st.session_state.get("branch_count", 1),
         "currency": st.session_state.get("currency", "SAR"),
         "period_from": st.session_state.get("period_from", ""),
         "period_to": st.session_state.get("period_to", ""),
@@ -119,12 +121,113 @@ def refresh_business_profile():
     st.session_state.business_profile = get_business_profile_from_inputs()
     return st.session_state.business_profile
 
+def safe_multiselect(label, options, default=None, **kwargs):
+    """Streamlit multiselect that never crashes when defaults are not in options."""
+    options = list(options or [])
+    default = [x for x in (default or []) if x in options]
+    return st.multiselect(label, options=options, default=default, **kwargs)
+
+
+def render_hero(title: str, body: str):
+    st.markdown(f"""
+    <div class="wazen-hero">
+        <h2>{title}</h2>
+        <p>{body}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_requirement_cards():
+    st.markdown("""
+    <div class="ux-card-grid">
+        <div class="ux-card">
+            <span class="required-badge">★ إلزامية للحد الأدنى</span>
+            <div class="ux-card-title">ميزان مراجعة + مبيعات + مصروفات</div>
+            <div class="ux-card-text">لبناء قائمة دخل أولية، مطابقة الدفاتر، وقراءة الربحية. بدونها يكون التحليل محدودًا جدًا.</div>
+        </div>
+        <div class="ux-card">
+            <span class="enhance-badge">يرفع جودة السيولة</span>
+            <div class="ux-card-title">سيولة + أعمار عملاء + أعمار موردين</div>
+            <div class="ux-card-text">لتحويل التحصيل من كلام عام إلى أسماء عملاء وأرصدة وأولويات متابعة.</div>
+        </div>
+        <div class="ux-card">
+            <span class="optional-badge">اختياري لكنه مهم</span>
+            <div class="ux-card-title">سنة سابقة + أصناف + عملاء + فروع</div>
+            <div class="ux-card-text">للموسمية، المرتجعات، الخصومات، تركّز العملاء، وتحليل الفروع عند توفرها.</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_business_profile_summary(profile: dict):
+    rows = [
+        ["الشركة", profile.get("company_name", "—")],
+        ["السوق", f"{profile.get('country','—')} / {profile.get('city') or 'مدينة غير محددة'}"],
+        ["القطاع", profile.get("sector", "—")],
+        ["النشاط", profile.get("activity", "—")],
+        ["نموذج العمل", profile.get("business_model", "—")],
+        ["قناة البيع", profile.get("sales_channel", "—")],
+        ["الفروع", profile.get("branch_mode", "تحليل إجمالي فقط")],
+        ["العملة", profile.get("currency", "—")],
+    ]
+    st.dataframe(pd.DataFrame(rows, columns=["المدخل", "القيمة"]), use_container_width=True, hide_index=True)
+
+
+def make_file_record(uploaded):
+    data = read_excel_file(uploaded)
+    if data.get("error"):
+        record = {
+            "file_name": data["file_name"],
+            "sheets": data.get("sheets", {}),
+            "primary_df": data.get("primary_df", pd.DataFrame()),
+            "detected_type": "unknown",
+            "confidence": 0.0,
+            "reasons": [data["error"]],
+            "suggested_role": "ignored",
+            "selected_role": "ignored",
+            "read_error": data["error"],
+            "repaired": False,
+        }
+    else:
+        detection = detect_file_type(data["primary_df"])
+        role = suggest_role(detection.file_type)
+        record = {
+            "file_name": data["file_name"],
+            "sheets": data["sheets"],
+            "primary_df": data["primary_df"],
+            "detected_type": detection.file_type,
+            "confidence": detection.confidence,
+            "reasons": detection.reasons,
+            "suggested_role": role,
+            "selected_role": role,
+            "read_error": None,
+            "repaired": data.get("repaired", False),
+        }
+    return apply_role_resolution_to_record(record)
+
+
+def ingest_uploaded_files(uploaded_files, append: bool = False):
+    if not append:
+        st.session_state.files = []
+        st.session_state.file_rows = []
+    errors = []
+    existing_names = {f.get("file_name") for f in st.session_state.files}
+    for uploaded in uploaded_files or []:
+        record = make_file_record(uploaded)
+        if append and record.get("file_name") in existing_names:
+            # Replace same-name file instead of duplicating it.
+            st.session_state.files = [f for f in st.session_state.files if f.get("file_name") != record.get("file_name")]
+        if record.get("read_error"):
+            errors.append(f"{record.get('file_name')}: {record.get('read_error')}")
+        st.session_state.files.append(record)
+    return errors
+
 
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.0</h1>', unsafe_allow_html=True)
-st.markdown('<p class="sub-title">تجربة تشخيص مالي موجهة: سياق النشاط → رفع الملفات → جاهزية البيانات → تشخيص CFO → سيناريوهات → إجراءات.</p>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.1</h1>', unsafe_allow_html=True)
+st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("## Wazen V12")
@@ -147,7 +250,7 @@ with st.sidebar:
     if st.button("بدء تحليل جديد / مسح الحالي"):
         reset_all()
         st.rerun()
-    st.caption("V12 Foundation: UX + Readiness + Liquidity/Collections + Scenario Skeleton")
+    st.caption("V12.1: UX polish + sectors + direct file add + safer readiness")
 
 
 # -----------------------------------------------------------------------------
@@ -155,38 +258,41 @@ with st.sidebar:
 # -----------------------------------------------------------------------------
 if page == "1. إعداد النشاط":
     section_header("1. إعداد النشاط قبل رفع الملفات")
-    stage_box(
-        "لماذا نبدأ بالسياق؟",
-        "نفس النسبة قد تكون طبيعية في قطاع وخطيرة في قطاع آخر. لذلك يبدأ الإيجنت بالبلد والقطاع ونموذج العمل حتى يفسر المبيعات والسيولة والمرتجعات والخصومات بطريقة مناسبة.",
+    render_hero(
+        "إعداد ذكي قبل التحليل",
+        "هذه الخطوة لا تجمع بيانات شكلية؛ هي التي تحدد كيف يفسّر الإيجنت الهامش، الخصومات، المرتجعات، السيولة، والتحصيل حسب البلد والقطاع وطبيعة العمل."
     )
 
     c1, c2, c3 = st.columns(3)
     with c1:
         st.text_input("اسم الشركة", value=st.session_state.business_profile.get("company_name", "Wazen Client"), key="company_name")
-        st.selectbox("البلد", COUNTRY_OPTIONS, index=COUNTRY_OPTIONS.index(st.session_state.business_profile.get("country", COUNTRY_OPTIONS[0])) if st.session_state.business_profile.get("country") in COUNTRY_OPTIONS else 0, key="country")
-        st.text_input("المدينة", value=st.session_state.business_profile.get("city", ""), key="city")
+        st.selectbox("البلد ★", COUNTRY_OPTIONS, index=COUNTRY_OPTIONS.index(st.session_state.business_profile.get("country", COUNTRY_OPTIONS[0])) if st.session_state.business_profile.get("country") in COUNTRY_OPTIONS else 0, key="country")
+        st.text_input("المدينة", value=st.session_state.business_profile.get("city", ""), key="city", placeholder="مثال: الرياض، جدة، الدمام")
     with c2:
         sectors = list(SECTOR_OPTIONS.keys())
-        st.selectbox("القطاع", sectors, index=sectors.index(st.session_state.business_profile.get("sector", sectors[0])) if st.session_state.business_profile.get("sector") in sectors else 0, key="business_sector")
+        st.selectbox("القطاع ★", sectors, index=sectors.index(st.session_state.business_profile.get("sector", sectors[0])) if st.session_state.business_profile.get("sector") in sectors else 0, key="business_sector")
         act_options = get_sector_config(st.session_state.get("business_sector", sectors[0])).get("activities", ["غير محدد"])
-        st.selectbox("طبيعة النشاط", act_options, index=0, key="activity")
+        st.selectbox("طبيعة النشاط ★", act_options, index=0, key="activity")
         st.selectbox("نموذج العمل", ["B2B", "B2C", "B2B + B2C", "اشتراكات", "مشاريع", "فروع", "غير محدد"], index=6, key="business_model")
     with c3:
         st.selectbox("قناة البيع", ["فروع", "أونلاين", "أونلاين + فروع", "ميداني", "عقود", "غير محدد"], index=5, key="sales_channel")
+        st.selectbox("تحليل الفروع", ["تحليل إجمالي فقط", "إجمالي + حسب الفروع إذا وجدت في البيانات", "كل فرع كحالة منفصلة لاحقًا"], index=0, key="branch_mode")
+        st.number_input("عدد الفروع التقريبي", min_value=1, max_value=500, value=int(st.session_state.business_profile.get("branch_count", 1) or 1), key="branch_count")
         st.selectbox("العملة", ["SAR", "USD", "AED", "EUR", "SYP", "Other"], index=0, key="currency")
-        st.text_input("فترة التحليل", value="مثال: 2026-01-01 إلى 2026-05-31", key="period_hint")
+
+    st.caption("★ حقول أساسية. باقي الحقول تساعد في رفع دقة التفسير، ويمكن تعديلها لاحقًا.")
 
     if st.button("حفظ سياق النشاط", type="primary"):
         profile = refresh_business_profile()
-        st.success("تم حفظ سياق النشاط. انتقلي إلى رفع الملفات والمطابقة.")
-        st.json(profile)
+        st.success("تم حفظ سياق النشاط. الخطوة التالية: رفع الملفات والمطابقة.")
+        render_business_profile_summary(profile)
 
     st.markdown("### ما الذي سيستخدمه الإيجنت من هذه البيانات؟")
     st.table(pd.DataFrame([
-        ["القطاع", "اختيار نسب سلامة أولية وتفسير المرتجعات/الخصومات والهامش"],
+        ["القطاع", "اختيار معايير سلامة أولية وتفسير المرتجعات/الخصومات والهامش حسب النشاط"],
         ["البلد/المدينة", "تهيئة العملة والضرائب والمقارنات المستقبلية"],
-        ["نموذج العمل", "تحديد المؤشرات الأهم: تحصيل، أصناف، اشتراكات، مشاريع"],
-        ["قناة البيع", "تفسير المرتجعات والخصومات وسلوك العملاء"],
+        ["نموذج العمل وقناة البيع", "تحديد المؤشرات الأهم: تحصيل، أصناف، اشتراكات، مشاريع، فروع"],
+        ["تحليل الفروع", "إذا ظهر عمود الفرع أو رفعت تقارير منفصلة، يظهر التحليل إجماليًا وحسب الفرع لاحقًا"],
     ], columns=["المدخل", "الأثر التحليلي"]))
 
 
@@ -197,17 +303,8 @@ elif page == "2. رفع الملفات والمطابقة":
     section_header("2. مركز رفع الملفات والمطابقة")
     refresh_business_profile()
 
-    with st.expander("الحد الأدنى والملفات التي ترفع جودة التحليل", expanded=True):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown("#### الحد الأدنى")
-            st.markdown("- ميزان المراجعة\n- تقرير المبيعات\n- تقرير المصروفات")
-        with c2:
-            st.markdown("#### للسيولة والتحصيل")
-            st.markdown("- تقرير السيولة النقدية\n- أعمار ديون العملاء\n- أعمار ديون الموردين\n- كشوف البنك للتحقق")
-        with c3:
-            st.markdown("#### لرفع دقة التنبؤ")
-            st.markdown("- مبيعات سنة سابقة\n- مبيعات الأصناف\n- مبيعات حسب العملاء\n- مرتجعات وخصومات\n- مخزون/رواتب/ضريبة")
+    render_hero("مركز رفع الملفات", "ارفعي ما هو متاح من النظام المحاسبي. الإيجنت لا يتوقف عند نقص البيانات؛ لكنه يوضح مستوى الثقة وما الذي يرفع جودة التحليل.")
+    render_requirement_cards()
 
     uploaded_files = st.file_uploader(
         "ارفع ملفات Excel المالية",
@@ -220,45 +317,10 @@ elif page == "2. رفع الملفات والمطابقة":
         st.success(f"تم اختيار {len(uploaded_files)} ملف: " + "، ".join([f.name for f in uploaded_files]))
 
     if uploaded_files and st.button("قراءة الملفات واكتشاف الأدوار", type="primary"):
-        st.session_state.files = []
-        st.session_state.file_rows = []
-        errors = []
         with st.spinner("يتم قراءة الملفات واكتشاف النوع والدور..."):
-            for uploaded in uploaded_files:
-                data = read_excel_file(uploaded)
-                if data.get("error"):
-                    record = {
-                        "file_name": data["file_name"],
-                        "sheets": data.get("sheets", {}),
-                        "primary_df": data.get("primary_df", pd.DataFrame()),
-                        "detected_type": "unknown",
-                        "confidence": 0.0,
-                        "reasons": [data["error"]],
-                        "suggested_role": "ignored",
-                        "selected_role": "ignored",
-                        "read_error": data["error"],
-                        "repaired": False,
-                    }
-                    errors.append(f"{data['file_name']}: {data['error']}")
-                else:
-                    detection = detect_file_type(data["primary_df"])
-                    role = suggest_role(detection.file_type)
-                    record = {
-                        "file_name": data["file_name"],
-                        "sheets": data["sheets"],
-                        "primary_df": data["primary_df"],
-                        "detected_type": detection.file_type,
-                        "confidence": detection.confidence,
-                        "reasons": detection.reasons,
-                        "suggested_role": role,
-                        "selected_role": role,
-                        "read_error": None,
-                        "repaired": data.get("repaired", False),
-                    }
-                record = apply_role_resolution_to_record(record)
-                st.session_state.files.append(record)
+            errors = ingest_uploaded_files(uploaded_files, append=False)
         if errors:
-            st.warning("تمت قراءة بعض الملفات مع وجود أخطاء في ملفات أخرى.")
+            st.warning("تمت قراءة بعض الملفات مع وجود أخطاء في ملفات أخرى. لن تظهر صفحة برمجية؛ سيظهر سبب الخطأ بلغة واضحة ضمن جدول الملفات.")
         else:
             st.success("تمت قراءة الملفات بنجاح.")
 
@@ -312,10 +374,12 @@ elif page == "2. رفع الملفات والمطابقة":
         st.caption(f"شهور المصاريف: {', '.join(expense_months) if expense_months else 'غير متاح'}")
         if validation_end_month and suggested_months != suggested_months_raw:
             st.warning(f"تم استبعاد الشهور بعد {validation_end_month} لأن ميزان المراجعة ينتهي عند هذا الشهر. يمكن تعديل الفترة يدويًا عند الحاجة.")
-        selected_months = st.multiselect(
+        month_options = suggested_months_raw or revenue_months or expense_months
+        month_default = st.session_state.selected_months or suggested_months or revenue_months or expense_months
+        selected_months = safe_multiselect(
             "اعتماد شهور التحليل",
-            options=suggested_months_raw or revenue_months or expense_months,
-            default=st.session_state.selected_months or suggested_months or revenue_months or expense_months,
+            options=month_options,
+            default=month_default,
         )
         st.session_state.selected_months = selected_months
 
@@ -398,6 +462,8 @@ elif page == "2. رفع الملفات والمطابقة":
 # -----------------------------------------------------------------------------
 elif page == "3. جاهزية التحليل":
     section_header("3. جاهزية التحليل")
+    render_hero("هل البيانات كافية لاتخاذ قرار؟", "هذه الصفحة لا توقف التحليل عند نقص الملفات؛ بل توضّح ما يمكن تحليله الآن، وما الذي يحتاج ملفًا إضافيًا لرفع الدقة.")
+
     profile = build_readiness_profile(st.session_state.files, refresh_business_profile(), st.session_state.models)
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -405,14 +471,52 @@ elif page == "3. جاهزية التحليل":
     with c2:
         kpi_card("ثقة اكتشاف الملفات", f"{profile['avg_confidence']*100:.0f}%", "متوسط الثقة في قراءة الملفات")
     with c3:
-        kpi_card("ملفات مرفوعة", f"{len(st.session_state.files)}", "ليست كلها مصادر تحليل رئيسية")
-    st.info(profile["status"])
-    st.markdown("#### فحص الجاهزية")
-    st.dataframe(profile["checks"], use_container_width=True, hide_index=True)
-    st.markdown("#### الملفات المقروءة")
-    st.dataframe(profile["uploaded_files"], use_container_width=True, hide_index=True)
-    st.markdown("#### ماذا يرفع جودة التحليل؟")
+        branch_note = "موجود" if profile.get("branch_signal",{}).get("has_branch_signal") else "غير ظاهر"
+        kpi_card("إشارة الفروع", branch_note, "حسب أعمدة أو نصوص الملفات")
+
+    st.markdown(f"""
+    <div class="wazen-action-box">
+        <h3>{profile['label']}</h3>
+        <p>{profile['status']}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("### إضافة ملفات من نفس الصفحة")
+    st.caption("لا تحتاجين الرجوع للبداية عند ظهور ملاحظة نقص. ارفعي الملف الإضافي هنا وسيتم ضمه للقراءة الحالية.")
+    add_files = st.file_uploader(
+        "إضافة ملف أو أكثر لتحسين الجاهزية",
+        type=["xlsx", "xls"],
+        accept_multiple_files=True,
+        key=f"readiness_extra_files_{st.session_state.uploader_key}",
+    )
+    if add_files and st.button("إضافة وقراءة الملفات الجديدة"):
+        with st.spinner("إضافة الملفات الجديدة وقراءة نوعها..."):
+            errors = ingest_uploaded_files(add_files, append=True)
+        if errors:
+            st.warning("تمت الإضافة مع وجود ملاحظات قراءة لبعض الملفات. راجعي جدول الملفات المقروءة.")
+        else:
+            st.success("تمت إضافة الملفات وقراءتها. أعيدي فتح الصفحة أو اضغطي تحديث لرؤية الجاهزية الجديدة.")
+        st.rerun()
+
+    st.markdown("### فحص الجاهزية")
+    checks_df = profile["checks"].copy()
+    if not checks_df.empty:
+        checks_df["الحالة"] = checks_df["الحالة"].replace({"متوفر": "✅ متوفر", "غير متوفر": "⚠️ غير متوفر"})
+    st.dataframe(checks_df, use_container_width=True, hide_index=True)
+
+    st.markdown("### الملفات المقروءة")
+    uploaded_df = profile["uploaded_files"].copy()
+    if uploaded_df.empty:
+        st.info("لم يتم رفع ملفات بعد.")
+    else:
+        st.dataframe(uploaded_df, use_container_width=True, hide_index=True)
+
+    st.markdown("### ماذا يرفع جودة التحليل؟")
     st.dataframe(build_missing_data_recommendations(profile), use_container_width=True, hide_index=True)
+
+    if profile.get("branch_signal", {}).get("files"):
+        st.markdown("### ملفات يظهر فيها أثر للفروع")
+        st.write("، ".join(profile["branch_signal"]["files"]))
 
 
 # -----------------------------------------------------------------------------
@@ -436,6 +540,17 @@ elif page == "4. التشخيص التنفيذي":
         perf = build_financial_performance_scorecard(pnl_model, breakeven_model)
         diag = build_owner_diagnosis(pnl_model, breakeven_model, expense_model, profile.get("sector", "غير محدد"), profile.get("country", ""), profile.get("activity", ""))
         liq_diag = liquidity_cfo_narrative(liq_model, pnl_model)
+
+        st.markdown("### التشخيص قبل الأرقام")
+        primary_issue = liq_diag["problem"] if liq_model.get("available") else diag.get("situation", "تحتاج البيانات إلى استكمال")
+        primary_action = liq_diag["action"] if liq_model.get("available") else diag.get("action", "استكمال الملفات الأساسية وبناء النموذج")
+        st.markdown(f"""
+        <div class="wazen-action-box">
+            <h3>أكبر رسالة لصاحب العمل الآن</h3>
+            <p><strong>المشكلة المحتملة:</strong> {primary_issue}</p>
+            <p><strong>الإجراء العملي القادم:</strong> {primary_action}</p>
+        </div>
+        """, unsafe_allow_html=True)
 
         st.markdown("### الإجابات التي تهم صاحب العمل")
         c1, c2, c3, c4 = st.columns(4)

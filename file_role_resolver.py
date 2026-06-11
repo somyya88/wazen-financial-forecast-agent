@@ -12,6 +12,11 @@ def resolve_by_filename(filename, detected_type="", suggested_role="", confidenc
     if any(x in name for x in ["أعمار ديون الموردين", "اعمار ديون الموردين", "أعمار الموردين", "اعمار الموردين", "ديون الموردين", "ذمم الموردين", "supplier aging", "vendor aging", "payable"]):
         return "ap_aging", "ap_aging_source", max(conf, .98), "أعمار موردين: يستخدم للالتزامات والسيولة."
 
+    if any(x in name for x in ["تقرير العملاء", "كشف العملاء", "حساب العملاء", "customer report", "customer statement"]):
+        return "customer_report", "customer_report_source", max(conf, .94), "تقرير عملاء: يستخدم لتفاصيل العملاء، التركّز، وربطه لاحقًا بالمبيعات والتحصيل."
+    if any(x in name for x in ["تقرير الموردين", "كشف الموردين", "حساب الموردين", "supplier report", "vendor report", "supplier statement"]):
+        return "supplier_report", "supplier_report_source", max(conf, .94), "تقرير موردين: يستخدم لتفاصيل الموردين وضغط الالتزامات وربطه لاحقًا بالدفع."
+
     if any(x in name for x in ["تقرير السيولة النقدية", "السيولة النقدية", "cash liquidity", "cash flow report"]):
         return "cash_liquidity_report", "cash_source", max(conf, .98), "تقرير سيولة نقدية: يستخدم كمدخل تنفيذي لحركة النقد الشهرية."
 
@@ -57,4 +62,8 @@ def liquidity_files_summary(files):
         out.append("أعمار العملاء")
     if "ap_aging_source" in roles:
         out.append("أعمار الموردين")
+    if "customer_report_source" in roles:
+        out.append("تقرير العملاء")
+    if "supplier_report_source" in roles:
+        out.append("تقرير الموردين")
     return "، ".join(out) if out else "غير مرفقة"
