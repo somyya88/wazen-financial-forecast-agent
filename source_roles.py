@@ -7,6 +7,9 @@ def suggest_role(file_type: str) -> str:
         "payroll": "expense_detail_source",
         "trial_balance": "validation_source",
         "bank_statement": "cash_source",
+        "cash_liquidity_report": "cash_source",
+        "ar_aging": "ar_aging_source",
+        "ap_aging": "ap_aging_source",
         "unknown": "supporting_source",
     }
     return mapping.get(file_type, "supporting_source")

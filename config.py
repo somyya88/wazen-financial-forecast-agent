@@ -1,4 +1,4 @@
-APP_NAME = "Wazen CFO Intelligence Agent V11.7.1"
+APP_NAME = "Wazen CFO Intelligence Agent V12.0"
 
 WAZEN_BLUE = "#17479E"
 WAZEN_ORANGE = "#FAA61A"
@@ -11,6 +11,9 @@ SUPPORTED_FILE_TYPES = [
     "expense_monthly",
     "item_sales",
     "bank_statement",
+    "cash_liquidity_report",
+    "ar_aging",
+    "ap_aging",
     "invoice_sales",
     "payroll",
     "unknown",

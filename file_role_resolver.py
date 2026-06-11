@@ -12,6 +12,9 @@ def resolve_by_filename(filename, detected_type="", suggested_role="", confidenc
     if any(x in name for x in ["أعمار ديون الموردين", "اعمار ديون الموردين", "أعمار الموردين", "اعمار الموردين", "ديون الموردين", "ذمم الموردين", "supplier aging", "vendor aging", "payable"]):
         return "ap_aging", "ap_aging_source", max(conf, .98), "أعمار موردين: يستخدم للالتزامات والسيولة."
 
+    if any(x in name for x in ["تقرير السيولة النقدية", "السيولة النقدية", "cash liquidity", "cash flow report"]):
+        return "cash_liquidity_report", "cash_source", max(conf, .98), "تقرير سيولة نقدية: يستخدم كمدخل تنفيذي لحركة النقد الشهرية."
+
     bank_words = ["كشف حساب البنك", "كشف حساب", "حساب البنك", "البنك الأهلي", "البنك الاهلي", "الأهلي", "الاهلي", "الراجحي", "بنك", "bank statement", "statement", "ahli", "rajhi"]
     tb_words = ["ميزان المراجعة", "ميزان مراجعه", "trial balance"]
     if any(x in name for x in bank_words) and not any(x in name for x in tb_words):

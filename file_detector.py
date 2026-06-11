@@ -37,6 +37,16 @@ def detect_file_type(df: pd.DataFrame) -> DetectionResult:
     item_keywords = ["صنف", "الأصناف", "item", "product", "quantity", "كمية", "وحدة", "unit"]
     score["item_sales"] = sum(k.lower() in cols or k.lower() in sample_text for k in item_keywords)
 
+    # Cash liquidity report
+    cash_liq_keywords = ["الأموال الجاهزة", "الاموال الجاهزة", "الباقي", "السيولة", "cash liquidity", "cash flow", "نقدية"]
+    score["cash_liquidity_report"] = sum(k.lower() in cols or k.lower() in sample_text for k in cash_liq_keywords) + len(month_cols)
+
+    # AR/AP aging
+    ar_keywords = ["أعمار ديون العملاء", "اعمار ديون العملاء", "عميل", "آخر سداد", "عمر الدين", "31-60", "receivable", "customer aging"]
+    ap_keywords = ["أعمار ديون الموردين", "اعمار ديون الموردين", "مورد", "آخر سداد", "عمر الدين", "31-60", "payable", "vendor aging", "supplier aging"]
+    score["ar_aging"] = sum(k.lower() in cols or k.lower() in sample_text for k in ar_keywords)
+    score["ap_aging"] = sum(k.lower() in cols or k.lower() in sample_text for k in ap_keywords)
+
     # Bank statement
     bank_keywords = ["bank", "بنك", "كشف", "statement", "transaction", "عملية", "رصيد", "balance", "iban"]
     score["bank_statement"] = sum(k.lower() in cols or k.lower() in sample_text for k in bank_keywords)
@@ -52,6 +62,17 @@ def detect_file_type(df: pd.DataFrame) -> DetectionResult:
     # Tie-breaking rules
     best_type = max(score, key=score.get)
     best_score = score[best_type]
+
+    # Strong explicit layouts should win before generic bank/trial-balance keywords.
+    if score.get("cash_liquidity_report", 0) >= 4 and len(month_cols) >= 2:
+        best_type = "cash_liquidity_report"
+        best_score = score[best_type]
+    elif score.get("ar_aging", 0) >= 4 and "عميل" in sample_text:
+        best_type = "ar_aging"
+        best_score = score[best_type]
+    elif score.get("ap_aging", 0) >= 4 and "مورد" in sample_text:
+        best_type = "ap_aging"
+        best_score = score[best_type]
 
     # Better rule for wide monthly expense vs sales
     if len(month_cols) >= 2:
