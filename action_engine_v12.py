@@ -40,7 +40,7 @@ def build_action_center(models: dict | None, liquidity_model: dict | None, readi
             rows.append(["تحصيل", "الذمم لا تظهر ضغطًا عاليًا", f"إجمالي العملاء {a.get('total_balance',0):,.0f}", "استمر في المتابعة الوقائية ولا توسع الائتمان دون سياسة", "شهري", "AR Aging"])
 
     if readiness_profile and readiness_profile.get("score", 0) < 60:
-        rows.append(["جودة بيانات", "دقة التوقع محدودة", f"جاهزية التحليل {readiness_profile.get('score')}%", "استكمل ملف السيولة/أعمار العملاء/مبيعات تفصيلية حسب النقص", "قبل الاعتماد النهائي", "Readiness Score"])
+        rows.append(["جودة بيانات", "دقة التوقع محدودة", f"جاهزية التحليل {readiness_profile.get('score')}%", "استكمل ملف السيولة/أعمار العملاء/مبيعات تفصيلية حسب النقص", "قبل الاعتماد النهائي", "درجة قابلية التحليل"])
 
     if not rows:
         rows.append(["تشغيل", "لا توجد إنذارات كافية بعد", "البيانات الحالية تحتاج بناء النموذج أو رفع مصادر إضافية", "ابدأ بجاهزية التحليل ثم التشخيص التنفيذي", "اليوم", "Data Readiness"])

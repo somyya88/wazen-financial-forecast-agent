@@ -71,7 +71,7 @@ def build_readiness_profile(files: list[dict], business_profile: dict | None = N
     wants_branch = bool(business_profile and str(business_profile.get("branch_mode", "")).startswith("إجمالي +"))
 
     checks = [
-        ("Business Context", "سياق النشاط", bool(business_profile and business_profile.get("sector") and business_profile.get("country")), 10, "تحديد البلد والقطاع ضروري لتفسير نسب السلامة."),
+        ("Business Context", "سياق الشركة", bool(business_profile and business_profile.get("sector") and business_profile.get("country")), 10, "تحديد البلد والقطاع ضروري لتفسير نسب السلامة."),
         ("Revenue", "الإيرادات", _has_role(role_map, "official_revenue_source"), 15, "مصدر الإيرادات الرسمي يمنع تضخيم المبيعات أو تكرارها."),
         ("Expenses", "المصروفات", _has_role(role_map, "official_expense_source"), 15, "مصدر المصروفات ضروري لتحليل الربحية والتكاليف."),
         ("Trial Balance", "ميزان المراجعة", _has_role(role_map, "validation_source"), 15, "ميزان المراجعة هو مرجع المطابقة وبناء القوائم."),
@@ -79,7 +79,7 @@ def build_readiness_profile(files: list[dict], business_profile: dict | None = N
         ("AR Aging", "أعمار العملاء", _has_role(role_map, "ar_aging_source"), 12, "أعمار العملاء تحول التحصيل من توصية عامة إلى قائمة عملاء وأرصدة."),
         ("AP Aging", "أعمار الموردين", _has_role(role_map, "ap_aging_source"), 8, "أعمار الموردين تكشف ضغط الالتزامات."),
         ("Customer/Supplier Details", "تقارير العملاء والموردين", _has_role(role_map, "customer_report_source") or _has_role(role_map, "supplier_report_source"), 4, "تساعد في فهم تركّز العملاء والموردين، حتى لو لم تكن بديلًا عن أعمار الديون."),
-        ("Details", "تفاصيل ترفع الدقة", _has_role(role_map, "revenue_detail_source") or len(role_map.get("supporting_source", [])) > 0 or _has_role(role_map, "customer_report_source"), 4, "تفاصيل العملاء/الأصناف/السنة السابقة ترفع دقة التنبؤ."),
+        ("Details", "تفاصيل إضافية للتنبؤ", _has_role(role_map, "revenue_detail_source") or len(role_map.get("supporting_source", [])) > 0 or _has_role(role_map, "customer_report_source"), 4, "تفاصيل العملاء/الأصناف/السنة السابقة ترفع دقة التنبؤ."),
         ("Branch Readiness", "تحليل الفروع", (not wants_branch) or branch_signal["has_branch_signal"], 5, "إذا كانت الشركة متعددة الفروع، نحتاج ملفًا يحتوي عمود الفرع أو تقارير منفصلة لكل فرع."),
         ("Model", "النموذج المالي", bool(models), 5, "بناء النموذج يتيح التشخيص والسيناريوهات."),
     ]
@@ -99,15 +99,31 @@ def build_readiness_profile(files: list[dict], business_profile: dict | None = N
     elif confidence < 0.60 and files:
         score = max(0, score - 10)
 
+    # Owner-friendly readiness language: explain scope, not a generic score.
+    has_revenue = _has_role(role_map, "official_revenue_source")
+    has_expenses = _has_role(role_map, "official_expense_source")
+    has_tb = _has_role(role_map, "validation_source")
+    has_cash = _has_role(role_map, "cash_source")
+    has_ar = _has_role(role_map, "ar_aging_source")
+
     if score >= 80:
-        label = "جاهزية عالية"
-        status = "يمكن إصدار تشخيص CFO جيد، مع إمكانية تعميق التوقع عند إضافة تفاصيل أكثر."
-    elif score >= 55:
-        label = "جاهزية متوسطة"
-        status = "يمكن إصدار تحليل مفيد، لكن بعض النتائج يجب عرضها بدرجة ثقة متوسطة."
+        label = "نطاق تحليل قوي"
+        status = "بحسب الملفات الحالية يمكن بناء قراءة ربحية وتشغيل وسيولة أولية، مع إمكانية الانتقال إلى التشخيص التنفيذي والسيناريوهات. التحليل يصبح أعمق عند إضافة مبيعات تفصيلية حسب العميل/الصنف أو سنة سابقة."
+    elif has_revenue and has_expenses and has_tb:
+        label = "نطاق تحليل مالي مقبول"
+        missing_parts = []
+        if not has_cash:
+            missing_parts.append("حركة النقد")
+        if not has_ar:
+            missing_parts.append("أولويات التحصيل بالأسماء")
+        missing_txt = " و".join(missing_parts) if missing_parts else "بعض التفاصيل التشغيلية"
+        status = f"بحسب الملفات الحالية يمكن تحليل الربحية والمصاريف ومطابقة الأرقام مع ميزان المراجعة. ما زال تحليل {missing_txt} يحتاج ملفًا إضافيًا لرفع الدقة."
+    elif has_revenue or has_expenses or has_tb:
+        label = "نطاق قراءة مبدئية"
+        status = "الملفات المرفوعة تكفي لفهم جزء من الصورة، لكنها لا تكفي لبناء نموذج مالي متكامل. نحتاج على الأقل ميزان مراجعة ومبيعات ومصروفات قبل إصدار تشخيص نهائي."
     else:
-        label = "جاهزية محدودة"
-        status = "يمكن إصدار قراءة مبدئية فقط؛ يلزم استكمال مصادر أساسية قبل الاعتماد على التوقعات."
+        label = "لا توجد بيانات مالية كافية"
+        status = "ابدئي برفع ميزان المراجعة وتقرير المبيعات وتقرير المصروفات. بعدها يمكن للإيجنت بناء التشخيص المالي وربط النتائج بالتوصيات."
 
     missing = [r[1] for r in checks if not r[2]]
     uploaded_table = []
@@ -147,5 +163,5 @@ def build_missing_data_recommendations(profile: dict) -> pd.DataFrame:
     if "ميزان المراجعة" in missing:
         rows.append(["المطابقة", "ارفع ميزان المراجعة", "لمنع تحليل مبني على ملفات فرعية غير مطابقة للدفاتر."])
     if not rows:
-        rows.append(["التحليل", "البيانات الحالية جيدة", "يمكن البدء بالتشخيص والسيناريوهات، ثم رفع ملفات تفصيلية عند الحاجة."])
+        rows.append(["تعميق التحليل", "مبيعات تفصيلية أو سنة سابقة عند توفرها", "ليست إلزامية الآن، لكنها تضيف تحليل الموسمية والخصومات والمرتجعات حسب العميل أو الصنف."])
     return pd.DataFrame(rows, columns=["المجال", "المطلوب بلغة بسيطة", "القيمة المضافة"])

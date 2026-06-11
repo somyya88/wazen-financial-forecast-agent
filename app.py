@@ -143,23 +143,96 @@ def render_hero(title: str, body: str):
 def render_requirement_cards():
     st.markdown("""
     <div class="ux-card-grid">
-        <div class="ux-card">
-            <span class="required-badge">★ إلزامية للحد الأدنى</span>
+        <div class="ux-card must-have">
+            <span class="required-badge">★ الحد الأدنى للتحليل</span>
             <div class="ux-card-title">ميزان مراجعة + مبيعات + مصروفات</div>
-            <div class="ux-card-text">لبناء قائمة دخل أولية، مطابقة الدفاتر، وقراءة الربحية. بدونها يكون التحليل محدودًا جدًا.</div>
+            <div class="ux-card-text">هذه الملفات هي أساس بناء القوائم، الربحية، ومطابقة النتائج. عند نقصها لا يتم بناء نموذج مالي نهائي.</div>
         </div>
-        <div class="ux-card">
-            <span class="enhance-badge">يرفع جودة السيولة</span>
-            <div class="ux-card-title">سيولة + أعمار عملاء + أعمار موردين</div>
-            <div class="ux-card-text">لتحويل التحصيل من كلام عام إلى أسماء عملاء وأرصدة وأولويات متابعة.</div>
+        <div class="ux-card should-have">
+            <span class="enhance-badge">يرفع دقة القرار</span>
+            <div class="ux-card-title">تقرير السيولة + أعمار العملاء + أعمار الموردين</div>
+            <div class="ux-card-text">تحول التحليل من أرقام عامة إلى نقد، تحصيل، أسماء عملاء، وأولويات متابعة.</div>
         </div>
-        <div class="ux-card">
-            <span class="optional-badge">اختياري لكنه مهم</span>
+        <div class="ux-card optional-data">
+            <span class="optional-badge">اختياري للتعمق</span>
             <div class="ux-card-title">سنة سابقة + أصناف + عملاء + فروع</div>
-            <div class="ux-card-text">للموسمية، المرتجعات، الخصومات، تركّز العملاء، وتحليل الفروع عند توفرها.</div>
+            <div class="ux-card-text">تستخدم للموسمية، المرتجعات، الخصومات، تركّز العملاء، وتحليل الفروع والمنتجات.</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+
+def minimum_model_status(files: list[dict]) -> dict:
+    """Return whether we have the minimum sources for a defensible financial model."""
+    readable = [r for r in files or [] if not r.get("read_error")]
+    roles = {str(r.get("selected_role") or "") for r in readable}
+    has_revenue = "official_revenue_source" in roles
+    has_expense = "official_expense_source" in roles
+    has_tb = "validation_source" in roles
+    missing = []
+    if not has_tb:
+        missing.append("ميزان المراجعة")
+    if not has_revenue:
+        missing.append("تقرير المبيعات")
+    if not has_expense:
+        missing.append("تقرير المصروفات")
+    return {
+        "ok": has_revenue and has_expense and has_tb,
+        "has_revenue": has_revenue,
+        "has_expense": has_expense,
+        "has_tb": has_tb,
+        "missing": missing,
+    }
+
+
+def render_minimum_model_guard(status: dict):
+    missing = "، ".join(status.get("missing") or [])
+    st.markdown(f"""
+    <div class="wazen-soft-warning">
+        <strong>لا يمكن بناء نموذج مالي موثوق بعد.</strong><br>
+        الملفات الناقصة للحد الأدنى: {missing or '—'}.<br>
+        يمكنك رفع ملف واحد أو أكثر الآن، لكن زر بناء النموذج لن يعمل قبل توفر ميزان المراجعة والمبيعات والمصروفات.
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_suggested_file_column(profile: dict):
+    recs = build_missing_data_recommendations(profile)
+    if recs.empty:
+        return
+    st.markdown("#### ملفات مقترحة")
+    st.caption("أضيفي الملف المناسب من بطاقة التوصية نفسها.")
+    for idx, row in recs.iterrows():
+        المجال = str(row.get("المجال", ""))
+        المطلوب = str(row.get("المطلوب بلغة بسيطة", ""))
+        القيمة = str(row.get("القيمة المضافة", ""))
+        st.markdown(f"""
+        <div class="side-file-card">
+            <span>{المجال}</span>
+            <h4>{المطلوب}</h4>
+            <p>{القيمة}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        files = st.file_uploader(
+            f"إضافة: {المطلوب}",
+            type=["xlsx", "xls"],
+            accept_multiple_files=True,
+            key=f"side_reco_upload_{idx}_{st.session_state.uploader_key}",
+        )
+        if files and st.button(f"قراءة هذا الملف #{idx+1}", key=f"side_reco_btn_{idx}"):
+            with st.spinner("يتم إضافة الملف وقراءة أثره..."):
+                errors = ingest_uploaded_files(files, append=True)
+                st.session_state.liquidity_model = build_liquidity_collections_model(st.session_state.files)
+                status = minimum_model_status(st.session_state.files)
+                if status["ok"]:
+                    build_models_from_session(st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0]))
+                else:
+                    st.session_state.pending_rebuild = True
+            if errors:
+                st.warning("تمت الإضافة مع ملاحظات قراءة لبعض الملفات.")
+            else:
+                st.success("تمت إضافة الملف بنجاح.")
+            st.rerun()
 
 
 def render_business_profile_summary(profile: dict):
@@ -377,7 +450,7 @@ PAGE_OPTIONS = [
     "3. جاهزية التحليل",
     "4. التشخيص التنفيذي",
     "5. مساحة التحليل",
-    "6. Scenario Studio",
+    "6. استوديو السيناريوهات",
     "7. التنبيهات والإجراءات",
     "8. التصدير",
 ]
@@ -390,7 +463,7 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.2</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.3</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
@@ -402,14 +475,14 @@ with st.sidebar:
         "مسار العمل",
         PAGE_OPTIONS,
         index=PAGE_OPTIONS.index(st.session_state.nav_page),
-        key="nav_page",
     )
+    st.session_state.nav_page = page
     st.divider()
     if st.button("بدء تحليل جديد / مسح الحالي"):
         reset_all()
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
-    st.caption("V12.2: AI expense classification + CFO logic + guided readiness + centered scenarios")
+    st.caption("V12.3: navigation guard + sector-aware expense classification + owner-ready readiness language")
 
 
 # -----------------------------------------------------------------------------
@@ -544,13 +617,13 @@ elif page == "2. رفع الملفات والمطابقة":
 
         if preview_expense_model and not preview_expense_model.get("expense_long", pd.DataFrame()).empty:
             industry = st.session_state.business_profile.get("activity") or st.session_state.business_profile.get("sector") or "غير محدد"
-            initial_mapping = apply_smart_classification(build_expense_mapping(preview_expense_model, industry), use_openai=True)
+            initial_mapping = apply_smart_classification(build_expense_mapping(preview_expense_model, industry), sector_context=industry, use_openai=True)
             current_signature = "|".join(initial_mapping["account_name"].astype(str).tolist())
             if st.session_state.mapping_signature != current_signature:
                 st.session_state.expense_mapping = initial_mapping.copy()
                 st.session_state.expense_mapping_saved = False
                 st.session_state.mapping_signature = current_signature
-            st.info("التصنيف يبدأ تلقائيًا من ميزان المراجعة/تقرير المصاريف + قواعد مالية محسّنة، ويستخدم AI إذا كان مفتاح OpenAI متاحًا. المطلوب منك مراجعة الاستثناءات منخفضة الثقة فقط، لا إعادة التصنيف يدويًا من الصفر.")
+            st.info("تم بناء خريطة المصاريف من الحسابات نفسها مع مراعاة القطاع المحدد. في الشركات البرمجية، الرواتب التشغيلية وخدمات التنفيذ/الدعم تُعامل كتكلفة إيراد عند وجود دلالة واضحة، ورواتب المبيعات تُعامل ضمن البيع والتسويق، والرواتب الإدارية ضمن المصاريف الإدارية. راجعي فقط البنود منخفضة الثقة أو المصنفة كمصاريف أخرى.")
             edited_mapping = render_expense_mapping_editor(st.session_state.expense_mapping, key_prefix="expense_mapping_v12")
             if st.button("حفظ تصنيف المصاريف", type="secondary"):
                 st.session_state.expense_mapping = edited_mapping.copy()
@@ -559,13 +632,16 @@ elif page == "2. رفع الملفات والمطابقة":
         else:
             st.info("لا توجد مصاريف كافية لبناء خريطة تصنيف الآن.")
 
-        build_disabled = bool(preview_expense_model is not None and not st.session_state.expense_mapping_saved)
+        min_status = minimum_model_status(st.session_state.files)
+        build_disabled = bool((preview_expense_model is not None and not st.session_state.expense_mapping_saved) or not min_status["ok"])
+        if not min_status["ok"]:
+            render_minimum_model_guard(min_status)
         if st.button("بناء النموذج المالي V12", disabled=build_disabled, type="primary"):
             with st.spinner("بناء النموذج المالي وطبقة السيولة والتحصيل..."):
                 build_models_from_session(revenue_definition)
             go_to("3. جاهزية التحليل")
 
-        if build_disabled:
+        if preview_expense_model is not None and not st.session_state.expense_mapping_saved:
             st.warning("احفظي تصنيف المصاريف قبل بناء النموذج.")
 
 
@@ -573,36 +649,41 @@ elif page == "2. رفع الملفات والمطابقة":
 # Readiness
 # -----------------------------------------------------------------------------
 elif page == "3. جاهزية التحليل":
-    section_header("3. جاهزية التحليل")
-    render_hero("هل البيانات كافية لاتخاذ قرار؟", "هذه الصفحة لا توقف التحليل عند نقص الملفات؛ بل توضّح ما يمكن تحليله الآن، وما الذي يحتاج ملفًا إضافيًا لرفع الدقة.")
+    section_header("3. قابلية التحليل من البيانات الحالية")
+    render_hero("ما الذي يمكن استخراجه الآن؟", "هذه الصفحة تترجم الملفات المرفوعة إلى نطاق تحليل واضح: ماذا نستطيع تشخيصه بثقة، وما الذي يحتاج ملفًا إضافيًا قبل الاعتماد على التوقعات.")
 
     profile = build_readiness_profile(st.session_state.files, refresh_business_profile(), st.session_state.models)
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        kpi_card("Readiness Score", f"{profile['score']}%", profile["label"])
-    with c2:
-        kpi_card("ثقة اكتشاف الملفات", f"{profile['avg_confidence']*100:.0f}%", "متوسط الثقة في قراءة الملفات")
-    with c3:
-        branch_note = "موجود" if profile.get("branch_signal",{}).get("has_branch_signal") else "غير ظاهر"
-        kpi_card("إشارة الفروع", branch_note, "حسب أعمدة أو نصوص الملفات")
+    main_col, side_col = st.columns([2.7, 1])
+    with main_col:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            kpi_card("درجة قابلية التحليل", f"{profile['score']}%", profile["label"])
+        with c2:
+            kpi_card("ثقة قراءة الملفات", f"{profile['avg_confidence']*100:.0f}%", "مدى وضوح بنية الملفات")
+        with c3:
+            branch_note = "يمكن تحليله" if profile.get("branch_signal",{}).get("has_branch_signal") else "غير متوفر"
+            kpi_card("تحليل الفروع", branch_note, "حسب الأعمدة أو نصوص الملفات")
 
-    st.markdown(f"""
-    <div class="wazen-action-box">
-        <h3>{profile['label']}</h3>
-        <p>{profile['status']}</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    render_readiness_upload_actions(profile)
+        st.markdown(f"""
+        <div class="wazen-action-box">
+            <h3>{profile['label']}</h3>
+            <p>{profile['status']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with side_col:
+        render_suggested_file_column(profile)
 
     if st.session_state.get("pending_rebuild"):
-        if st.button("إعادة بناء النموذج بالملفات المضافة الآن", type="primary"):
+        min_status = minimum_model_status(st.session_state.files)
+        if not min_status["ok"]:
+            render_minimum_model_guard(min_status)
+        elif st.button("تحديث النموذج بالملفات المضافة", type="primary"):
             with st.spinner("إعادة بناء النموذج..."):
                 build_models_from_session(st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0]))
             st.success("تم تحديث النموذج بالملفات الجديدة.")
             st.rerun()
 
-    st.markdown("### فحص الجاهزية")
+    st.markdown("### نطاق التحليل المتاح")
     checks_df = profile["checks"].copy()
     if not checks_df.empty:
         checks_df["الحالة"] = checks_df["الحالة"].replace({"متوفر": "✅ متوفر", "غير متوفر": "⚠️ غير متوفر"})
@@ -615,8 +696,8 @@ elif page == "3. جاهزية التحليل":
     else:
         st.dataframe(uploaded_df, use_container_width=True, hide_index=True)
 
-    st.markdown("### ماذا يرفع جودة التحليل؟")
-    st.dataframe(build_missing_data_recommendations(profile), use_container_width=True, hide_index=True)
+    st.markdown("### كيف نرفع دقة القرار؟")
+    st.caption("تظهر الملفات المقترحة في العمود الجانبي مع إمكانية إضافتها مباشرة دون الرجوع لصفحة الرفع.")
 
     if profile.get("branch_signal", {}).get("files"):
         st.markdown("### ملفات يظهر فيها أثر للفروع")
@@ -713,7 +794,7 @@ elif page == "5. مساحة التحليل":
         monthly_pnl_model = models.get("monthly_pnl_model", pd.DataFrame())
         breakeven_model = models.get("breakeven_model", {})
         liq_model = st.session_state.liquidity_model or build_liquidity_collections_model(st.session_state.files)
-        tabs = st.tabs(["Revenue Quality", "Profitability", "Cash & Liquidity", "Collections", "Expenses", "Sector Safety"])
+        tabs = st.tabs(["جودة الإيراد", "الربحية", "السيولة والنقد", "التحصيل", "المصاريف", "معايير القطاع"])
 
         with tabs[0]:
             st.subheader("جودة الإيراد")
@@ -798,7 +879,7 @@ elif page == "5. مساحة التحليل":
                 with c1:
                     st.markdown("#### المصاريف الشهرية")
                     st.dataframe(monthly_exp, use_container_width=True, hide_index=True)
-                    if not monthly_exp.empty: bar_chart(monthly_exp, "month", "expenses", "Monthly Expenses")
+                    if not monthly_exp.empty: bar_chart(monthly_exp, "month", "expenses", "المصاريف الشهرية")
                 with c2:
                     st.markdown("#### هيكل المصاريف")
                     st.dataframe(cat_df, use_container_width=True, hide_index=True)
@@ -822,8 +903,8 @@ elif page == "5. مساحة التحليل":
 # -----------------------------------------------------------------------------
 # Scenario Studio
 # -----------------------------------------------------------------------------
-elif page == "6. Scenario Studio":
-    section_header("6. Scenario Studio")
+elif page == "6. استوديو السيناريوهات":
+    section_header("6. استوديو السيناريوهات")
     if not st.session_state.models:
         st.warning("ابني النموذج المالي أولًا.")
     else:

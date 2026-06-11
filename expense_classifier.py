@@ -50,18 +50,34 @@ MAINTENANCE_KEYWORDS = ["صيانة", "صيانه", "repair", "maintenance"]
 FUEL_KEYWORDS = ["وقود", "بنزين", "ديزل", "محروقات", "fuel"]
 DEPRECIATION_KEYWORDS = ["اهلاك", "إهلاك", "استهلاك", "depreciation"]
 FINANCE_KEYWORDS = ["فوائد", "فائده", "تمويل", "قرض", "قروض", "finance cost", "interest"]
-BANK_KEYWORDS = ["عموله بنك", "عمولات بنك", "رسوم بنكيه", "البنك", "bank charges", "bank fees"]
+BANK_KEYWORDS = ["عموله بنك", "عمولات بنك", "رسوم بنكيه", "رسوم بنكية", "البنك", "بوابة الدفع", "بوابه الدفع", "الدفع الالكتروني", "الدفع الإلكتروني", "payment gateway", "مدى", "فيزا", "ماستر", "تمارا", "تابي", "bank charges", "bank fees"]
 MARKETING_KEYWORDS = ["تسويق", "اعلان", "إعلان", "اعلانات", "دعايه", "دعاية", "ترويج", "عموله", "عمولة", "عمولات", "وكلاء", "وكيل", "متعاونين", "مندوب", "مبيعات", "تحصيل", "سمسرة", "sales commission", "marketing", "advertising", "selling", "agent commission", "commission"]
-ADMIN_KEYWORDS = ["اداري", "إداري", "ادارة", "إدارة", "بدل اداره", "بدل إدارة", "رخصه", "رخصة", "تجديد رخصه", "تجديد رخصة", "بلديه", "بلدية", "حكومية", "مصروفات حكومية", "اتعاب", "أتعاب", "محاسبية", "برمجية", "برنامج", "نظام", "النظام المحاسبي", "اشتراك", "اشتراكات", "جمعيه", "جمعية", "بريديه", "بريدية", "سكن", "مواصلات", "تنقلات", "سفر", "مكتب", "قرطاسيه", "قرطاسية", "ضيافه", "ضيافة", "نظافه", "نظافة", "بلاستيك", "ادوات", "ادوات النظافه", "وجبات العمال", "منصه", "منصة", "administrative", "admin", "professional fees", "software", "subscription", "travel", "transport"]
+ADMIN_KEYWORDS = ["اداري", "إداري", "ادارة", "إدارة", "بدل اداره", "بدل إدارة", "نظافه", "نظافة", "منظفات", "ضيافه", "ضيافة", "اشتراكات", "امتيازات", "نهاية خدمة", "رخصه", "رخصة", "تجديد رخصه", "تجديد رخصة", "بلديه", "بلدية", "حكومية", "مصروفات حكومية", "اتعاب", "أتعاب", "محاسبية", "برمجية", "برنامج", "نظام", "النظام المحاسبي", "اشتراك", "اشتراكات", "جمعيه", "جمعية", "بريديه", "بريدية", "سكن", "مواصلات", "تنقلات", "سفر", "مكتب", "قرطاسيه", "قرطاسية", "ضيافه", "ضيافة", "نظافه", "نظافة", "بلاستيك", "ادوات", "ادوات النظافه", "وجبات العمال", "منصه", "منصة", "administrative", "admin", "professional fees", "software", "subscription", "travel", "transport"]
 
-def classify_account_rule_based(account_name, amount=0, source_category=None):
+def classify_account_rule_based(account_name, amount=0, source_category=None, sector_context=""):
     raw = "" if account_name is None else str(account_name)
     text = _norm(raw)
     src = _norm(source_category)
+    ctx = _norm(sector_context)
+    is_saas = any(k in ctx for k in ["saas", "برمجي", "برمجية", "تقنيه", "تقنية", "اشتراكات", "منصة", "منصه"])
 
     score = []
     def add(category, behavior, points, reason):
         score.append((points, category, behavior, reason))
+
+    # Sector-aware payroll and delivery classification.
+    # For SaaS / software businesses, not every salary is admin: delivery/support/operations salaries are cost of revenue,
+    # sales salaries are S&M, and admin salaries are admin opex.
+    if _contains_any(text, PAYROLL_KEYWORDS):
+        if _contains_any(text, ["مبيعات", "مندوب", "sales", "بيع"]):
+            add("Selling & Marketing", "Fixed", 96, "رواتب أو عمولات مرتبطة بفريق المبيعات")
+        elif is_saas and _contains_any(text, ["تشغيلي", "تشغيلية", "تشغيل", "خدمة", "خدمات", "دعم", "تنفيذ", "مبرمج", "برمجة", "تقني", "تقنية", "ادارات تشغيلية"]):
+            add("Cost of Revenue", "Fixed", 96, "في شركة برمجية: رواتب تشغيل/تنفيذ/دعم مرتبطة بتقديم الخدمة وتعد تكلفة إيراد")
+        elif _contains_any(text, ["اداري", "ادارية", "إداري", "إدارية", "اداره", "ادارة"]):
+            add("Administrative Expenses", "Fixed", 95, "رواتب إدارية لا ترتبط مباشرة بتقديم الخدمة")
+
+    if is_saas and _contains_any(text, ["استضافه", "استضافة", "سيرفر", "خوادم", "cloud", "aws", "hosting", "api", "دعم فني", "تنفيذ", "تشغيلية", "تشغيلي"]):
+        add("Cost of Revenue", "Variable", 94, "تكلفة تقنية/تشغيلية مرتبطة بتقديم الخدمة البرمجية")
 
     if _contains_any(text, DIRECT_COST_KEYWORDS) or _contains_any(src, ["مشتريات", "cogs", "cost"]):
         behavior = "Variable"
@@ -90,9 +106,19 @@ def classify_account_rule_based(account_name, amount=0, source_category=None):
     if _contains_any(text, FINANCE_KEYWORDS):
         add("Finance Costs", "Fixed", 90, "اسم الحساب يشير إلى فوائد أو تكاليف تمويل")
     if _contains_any(text, BANK_KEYWORDS):
-        add("Bank Charges", "Semi-variable", 84, "اسم الحساب يشير إلى رسوم أو عمولات بنكية")
+        add("Bank Charges", "Variable", 90, "اسم الحساب يشير إلى رسوم بنكية أو بوابات دفع")
+    if _contains_any(text, ["شحن", "توصيل", "shipping", "delivery"]):
+        add("Cost of Revenue", "Variable", 88, "مصروف شحن/توصيل مرتبط بتنفيذ البيع أو الخدمة")
+    if _contains_any(text, ["نظافه", "نظافة", "منظفات"]):
+        add("Administrative Expenses", "Semi-variable", 84, "مصروف نظافة أو مستلزمات تشغيل عامة")
+    if _contains_any(text, ["نهايه خدمه", "نهاية خدمة", "استحقاقات نهاية"]):
+        if is_saas and _contains_any(text, ["تشغيلي", "تشغيلية"]):
+            add("Cost of Revenue", "Fixed", 85, "استحقاقات موظفين تشغيلية في نشاط برمجي")
+        else:
+            add("Administrative Expenses", "Fixed", 82, "استحقاقات موظفين غير مرتبطة مباشرة بالمبيعات")
     if _contains_any(text, MARKETING_KEYWORDS):
-        add("Selling & Marketing", "Variable", 86, "اسم الحساب يشير إلى تسويق أو مبيعات أو عمولات")
+        mkt_score = 94 if _contains_any(text, ["مبيعات", "مندوب", "عموله", "عمولة", "عمولات"]) else 86
+        add("Selling & Marketing", "Variable", mkt_score, "اسم الحساب يشير إلى تسويق أو مبيعات أو عمولات")
     if _contains_any(text, ADMIN_KEYWORDS):
         add("Administrative Expenses", "Fixed", 80, "اسم الحساب يشير إلى مصاريف إدارية أو رسوم حكومية")
 
@@ -125,7 +151,7 @@ def _get_openai_client():
     except Exception:
         return None
 
-def classify_accounts_openai_batch(rows, model="gpt-4o-mini"):
+def classify_accounts_openai_batch(rows, sector_context="", model="gpt-4o-mini"):
     """
     Classifies a batch of account rows with OpenAI.
     Sends only account name, amount, and current category.
@@ -154,8 +180,11 @@ Allowed categories:
 Allowed cost behaviors:
 {COST_BEHAVIOR_OPTIONS}
 
+Business context: {sector_context or "not specified"}
+
 Classification principles:
 - Purchases, merchandise, direct materials, direct operating inputs, spare parts, fuel used directly in operations, and cost of service delivery should be Cost of Revenue or Purchases.
+- For SaaS/software companies: implementation/support/operations salaries and hosting/cloud/API costs can be Cost of Revenue; sales salaries and sales commissions are Selling & Marketing; admin salaries are Administrative Expenses.
 - Administrative permits, licenses, government fees, office subscriptions, cleaning supplies, residency renewals, internet/phone unless clearly direct production, and general office costs should be Administrative Expenses or Utilities.
 - Advertising, promotion, commissions, sales-related costs should be Selling & Marketing.
 - Interest, loans, financing charges should be Finance Costs.
@@ -205,7 +234,8 @@ Classification principles:
                 continue
             category = item.get("category", "Other Opex")
             behavior = item.get("cost_behavior", "Fixed")
-            confidence = int(float(item.get("confidence", 70)))
+            raw_conf = float(item.get("confidence", 70))
+            confidence = int(raw_conf * 100) if 0 <= raw_conf <= 1 else int(raw_conf)
             reason = str(item.get("reason", "تصنيف بالذكاء الصناعي"))
             if category not in CATEGORY_OPTIONS:
                 category = "Other Opex"
@@ -216,7 +246,7 @@ Classification principles:
     except Exception:
         return None
 
-def apply_smart_classification(mapping_df: pd.DataFrame, use_openai=True, batch_size=40) -> pd.DataFrame:
+def apply_smart_classification(mapping_df: pd.DataFrame, sector_context="", use_openai=True, batch_size=40) -> pd.DataFrame:
     if mapping_df is None or mapping_df.empty:
         return mapping_df
 
@@ -233,6 +263,7 @@ def apply_smart_classification(mapping_df: pd.DataFrame, use_openai=True, batch_
             row.get("account_name", ""),
             row.get("amount", 0),
             row.get("current_category", ""),
+            sector_context,
         )
         categories.append(cat)
         behaviors.append(beh)
@@ -248,7 +279,7 @@ def apply_smart_classification(mapping_df: pd.DataFrame, use_openai=True, batch_
     if use_openai:
         for start in range(0, len(row_dicts), batch_size):
             batch = row_dicts[start:start+batch_size]
-            ai = classify_accounts_openai_batch(batch)
+            ai = classify_accounts_openai_batch(batch, sector_context=sector_context)
             if ai:
                 for local_idx, result in ai.items():
                     global_idx = start + local_idx

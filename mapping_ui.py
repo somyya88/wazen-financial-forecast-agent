@@ -34,10 +34,10 @@ def render_expense_mapping_editor(mapping_df: pd.DataFrame, key_prefix: str = "e
             base[col] = "" if col != "amount" else 0
     base["amount"] = _numeric(base["amount"])
 
-    st.markdown("### لوحة تصنيف المصاريف")
-    st.caption("استخدمي الفلاتر التالية لتدقيق الحسابات حسب التصنيف، نوع التكلفة، الثقة، أو اسم الحساب. الجدول نفسه لا يعتمد على عمل يدوي كامل؛ التصنيف يبدأ تلقائيًا بالقواعد المالية والذكاء الصناعي عند توفره، والمراجعة اليدوية تكون للاستثناءات فقط.")
+    st.markdown("### خريطة تصنيف المصاريف")
+    st.caption("هذه الخريطة تقسم المصاريف إلى تكلفة إيراد، بيع وتسويق، إدارية، تمويلية، وأخرى. استخدمي الفلاتر أعلى الجدول بدل قوائم أعمدة Streamlit، لأنها أكثر ثباتًا وتعمل على الحسابات والتصنيفات والثقة.")
 
-    st.markdown("#### فلاتر التصنيف")
+    st.markdown("#### فلاتر سريعة قبل المراجعة")
 
     c1, c2, c3, c4 = st.columns([1.3, 1, 1, 1])
     with c1:
@@ -55,7 +55,7 @@ def render_expense_mapping_editor(mapping_df: pd.DataFrame, key_prefix: str = "e
     with c5:
         only_other = st.checkbox("Other Opex فقط", value=False, key=f"{key_prefix}_other")
     with c6:
-        only_review = st.checkbox("يحتاج مراجعة فقط", value=True, key=f"{key_prefix}_review")
+        only_review = st.checkbox("يحتاج مراجعة فقط", value=False, key=f"{key_prefix}_review")
     with c7:
         only_large = st.checkbox("البنود الكبيرة فقط", value=False, key=f"{key_prefix}_large")
     with c8:
@@ -144,14 +144,14 @@ def render_expense_mapping_editor(mapping_df: pd.DataFrame, key_prefix: str = "e
         use_container_width=True,
         hide_index=False,
         column_config={
-            "display_group": st.column_config.TextColumn("مجموعة العرض", disabled=True),
-            "account_name": st.column_config.TextColumn("الحساب", disabled=True),
-            "current_category": st.column_config.TextColumn("التصنيف المقترح", disabled=True),
-            "user_category": st.column_config.SelectboxColumn("التصنيف المعتمد", options=sorted(set(CATEGORY_OPTIONS) | set(base["user_category"].dropna().astype(str).tolist())), required=True),
-            "cost_behavior": st.column_config.SelectboxColumn("نوع التكلفة", options=sorted(set(COST_BEHAVIOR_OPTIONS) | set(base["cost_behavior"].dropna().astype(str).tolist())), required=True),
+            "display_group": st.column_config.TextColumn("مكانه في قائمة الدخل", disabled=True),
+            "account_name": st.column_config.TextColumn("اسم الحساب", disabled=True),
+            "current_category": st.column_config.TextColumn("تصنيف النظام المبدئي", disabled=True),
+            "user_category": st.column_config.SelectboxColumn("التصنيف المالي المعتمد", options=sorted(set(CATEGORY_OPTIONS) | set(base["user_category"].dropna().astype(str).tolist())), required=True),
+            "cost_behavior": st.column_config.SelectboxColumn("سلوك التكلفة", options=sorted(set(COST_BEHAVIOR_OPTIONS) | set(base["cost_behavior"].dropna().astype(str).tolist())), required=True),
             "amount": st.column_config.NumberColumn("المبلغ", format="%.2f", disabled=True),
-            "classification_confidence": st.column_config.NumberColumn("الثقة", disabled=True, format="%d"),
-            "classification_source": st.column_config.TextColumn("المصدر", disabled=True),
+            "classification_confidence": st.column_config.NumberColumn("ثقة التصنيف", disabled=True, format="%d"),
+            "classification_source": st.column_config.TextColumn("طريقة التصنيف", disabled=True),
             "classification_reason": st.column_config.TextColumn("سبب التصنيف", disabled=True),
         },
         key=f"{key_prefix}_editor",
