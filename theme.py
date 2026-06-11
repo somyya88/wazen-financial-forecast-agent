@@ -570,6 +570,28 @@ def apply_theme():
     .wazen-action-box p { color:#EEF5FF; line-height:1.9; margin:0; }
     @media(max-width: 1000px){ .ux-card-grid, .readiness-strip{ grid-template-columns: 1fr; } }
 
+    .file-request-card {
+        background:#FFFFFF; border:1px solid #DFE7F3; border-right:6px solid #FAA61A;
+        border-radius:18px; padding:16px 18px; margin:14px 0 8px;
+        box-shadow:0 14px 34px rgba(16,24,40,.055);
+    }
+    .file-request-domain {
+        display:inline-block; background:#F3F7FF; color:#17479E; border:1px solid #C8D8F5;
+        border-radius:999px; padding:4px 12px; font-weight:900; font-size:12px; margin-bottom:8px;
+    }
+    .file-request-title { color:#0B2E63; font-size:18px; font-weight:900; margin-bottom:6px; }
+    .file-request-text { color:#475467; line-height:1.8; font-size:14.5px; }
+    .cfo-brief-pro {
+        background:linear-gradient(135deg,#FFFFFF 0%,#F7FAFF 100%); border:1px solid #D9E6F8;
+        border-radius:24px; padding:24px 26px; box-shadow:0 20px 56px rgba(23,71,158,.10);
+        margin:18px 0 24px; border-right:7px solid #17479E;
+    }
+    .cfo-brief-pro h3 { color:#0B2E63 !important; font-size:24px; font-weight:950; margin:0 0 12px; }
+    .cfo-brief-pro p { color:#1F2937; line-height:2; font-size:16px; margin:8px 0; }
+    .cfo-brief-pro .danger { color:#B42318; font-weight:900; }
+    .cfo-brief-pro .ok { color:#067647; font-weight:900; }
+    .cfo-brief-pro .focus { color:#17479E; font-weight:900; }
+
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)

@@ -43,16 +43,16 @@ DIRECT_COST_KEYWORDS = [
     "تكاليف تشغيل", "تكلفة تشغيل", "خدمات مباشره", "خدمات مباشرة",
     "مصروفات تشغيل", "مصاريف تشغيل", "cost of revenue", "cogs", "purchases",
 ]
-PAYROLL_KEYWORDS = ["رواتب", "اجور", "أجور", "مرتبات", "مكافات", "مكافآت", "تامينات اجتماعيه", "التامينات الاجتماعيه", "تأمينات اجتماعية", "gosi", "payroll", "salary", "wages"]
+PAYROLL_KEYWORDS = ["رواتب", "راتب", "اجور", "أجور", "مرتبات", "مكافات", "مكافآت", "مكافاه", "مكافأة", "حوافز", "تحفيز", "بدل تحفيز", "بدلات", "موظفين", "عاملين", "عمال", "اقامه", "إقامة", "تأشيرات", "تامينات اجتماعيه", "التامينات الاجتماعيه", "تأمينات اجتماعية", "gosi", "payroll", "salary", "wages", "bonus", "incentive"]
 RENT_KEYWORDS = ["ايجار", "إيجار", "اجار", "rent"]
-UTILITIES_KEYWORDS = ["كهرباء", "مياه", "ماء", "هاتف", "انترنت", "الاتصالات", "utility", "utilities"]
+UTILITIES_KEYWORDS = ["كهرباء", "مياه", "ماء", "هاتف", "انترنت", "الاتصالات", "اتصال", "اتصالات", "موبايل", "جوال", "utility", "utilities", "telecom"]
 MAINTENANCE_KEYWORDS = ["صيانة", "صيانه", "repair", "maintenance"]
 FUEL_KEYWORDS = ["وقود", "بنزين", "ديزل", "محروقات", "fuel"]
 DEPRECIATION_KEYWORDS = ["اهلاك", "إهلاك", "استهلاك", "depreciation"]
 FINANCE_KEYWORDS = ["فوائد", "فائده", "تمويل", "قرض", "قروض", "finance cost", "interest"]
 BANK_KEYWORDS = ["عموله بنك", "عمولات بنك", "رسوم بنكيه", "البنك", "bank charges", "bank fees"]
-MARKETING_KEYWORDS = ["تسويق", "اعلان", "إعلان", "اعلانات", "دعايه", "دعاية", "ترويج", "عموله", "عمولة", "مبيعات", "سمسرة", "sales commission", "marketing", "advertising", "selling"]
-ADMIN_KEYWORDS = ["تجديد رخصه", "رخصه", "رخصة", "اقامه", "إقامة", "تجديد الاقامه", "بلديه", "الشهادات الصحيه", "رسوم", "اشتراك", "النظام المحاسبي", "مكتب", "قرطاسيه", "قرطاسية", "ضيافه", "نظافه", "نظافة", "بلاستيك", "ادوات", "ادوات النظافه", "وجبات العمال", "منصه", "منصة", "اداري", "administrative", "admin"]
+MARKETING_KEYWORDS = ["تسويق", "اعلان", "إعلان", "اعلانات", "دعايه", "دعاية", "ترويج", "عموله", "عمولة", "عمولات", "وكلاء", "وكيل", "متعاونين", "مندوب", "مبيعات", "تحصيل", "سمسرة", "sales commission", "marketing", "advertising", "selling", "agent commission", "commission"]
+ADMIN_KEYWORDS = ["اداري", "إداري", "ادارة", "إدارة", "بدل اداره", "بدل إدارة", "رخصه", "رخصة", "تجديد رخصه", "تجديد رخصة", "بلديه", "بلدية", "حكومية", "مصروفات حكومية", "اتعاب", "أتعاب", "محاسبية", "برمجية", "برنامج", "نظام", "النظام المحاسبي", "اشتراك", "اشتراكات", "جمعيه", "جمعية", "بريديه", "بريدية", "سكن", "مواصلات", "تنقلات", "سفر", "مكتب", "قرطاسيه", "قرطاسية", "ضيافه", "ضيافة", "نظافه", "نظافة", "بلاستيك", "ادوات", "ادوات النظافه", "وجبات العمال", "منصه", "منصة", "administrative", "admin", "professional fees", "software", "subscription", "travel", "transport"]
 
 def classify_account_rule_based(account_name, amount=0, source_category=None):
     raw = "" if account_name is None else str(account_name)
@@ -73,9 +73,12 @@ def classify_account_rule_based(account_name, amount=0, source_category=None):
             add("Cost of Revenue", behavior, 92, "اسم الحساب يشير إلى تكلفة تشغيل مباشرة أو تكلفة إيراد")
 
     if _contains_any(text, PAYROLL_KEYWORDS):
-        add("Payroll", "Fixed", 88, "اسم الحساب يشير إلى رواتب أو أجور أو تأمينات")
+        payroll_behavior = "Variable" if _contains_any(text, ["مكاف", "حافز", "حوافز", "تحفيز", "bonus", "incentive"]) else "Fixed"
+        add("Payroll", payroll_behavior, 88, "اسم الحساب يشير إلى رواتب أو أجور أو تأمينات")
     if _contains_any(text, RENT_KEYWORDS):
         add("Rent", "Fixed", 86, "اسم الحساب يشير إلى إيجارات")
+    if _contains_any(text, ["بدل اداره", "بدل ادارة", "بدل إدارة", "اداره", "ادارة", "إدارة"]):
+        add("Administrative Expenses", "Fixed", 87, "اسم الحساب يشير إلى بدل أو مصروف إداري")
     if _contains_any(text, UTILITIES_KEYWORDS):
         add("Utilities", "Semi-variable", 82, "اسم الحساب يشير إلى خدمات ومرافق")
     if _contains_any(text, MAINTENANCE_KEYWORDS):

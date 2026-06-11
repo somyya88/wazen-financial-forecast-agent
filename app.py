@@ -72,6 +72,9 @@ DEFAULTS = {
     "mapping_signature": None,
     "uploader_key": 0,
     "model_ready": False,
+    "nav_page": "1. إعداد النشاط",
+    "pending_rebuild": False,
+    "revenue_definition": REVENUE_DEFINITIONS[0],
 }
 for key, value in DEFAULTS.items():
     if key not in st.session_state:
@@ -172,6 +175,92 @@ def render_business_profile_summary(profile: dict):
     ]
     st.dataframe(pd.DataFrame(rows, columns=["المدخل", "القيمة"]), use_container_width=True, hide_index=True)
 
+def render_readiness_upload_actions(profile: dict):
+    recs = build_missing_data_recommendations(profile)
+    if recs.empty:
+        return
+    st.markdown("### ملفات مقترحة لرفع جودة التحليل")
+    st.caption("بدل الرجوع لصفحة البداية، يمكن إضافة الملف من نفس بطاقة التوصية وسيتم ضمه للقراءة الحالية مباشرة.")
+    for idx, row in recs.iterrows():
+        المجال = str(row.get("المجال", ""))
+        المطلوب = str(row.get("المطلوب بلغة بسيطة", ""))
+        القيمة = str(row.get("القيمة المضافة", ""))
+        st.markdown(f"""
+        <div class="file-request-card">
+            <div class="file-request-domain">{المجال}</div>
+            <div class="file-request-title">{المطلوب}</div>
+            <div class="file-request-text">{القيمة}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        files = st.file_uploader(
+            f"إضافة ملف لهذا البند: {المطلوب}",
+            type=["xlsx", "xls"],
+            accept_multiple_files=True,
+            key=f"readiness_action_upload_{idx}_{st.session_state.uploader_key}",
+        )
+        if files and st.button(f"قراءة وإضافة الملف المقترح #{idx+1}", key=f"readiness_action_btn_{idx}"):
+            with st.spinner("يتم قراءة الملف وإضافته للنموذج الحالي..."):
+                errors = ingest_uploaded_files(files, append=True)
+                st.session_state.liquidity_model = build_liquidity_collections_model(st.session_state.files)
+                # Rebuild model immediately when enough data exists; this keeps the user in the same flow.
+                if st.session_state.files:
+                    try:
+                        build_models_from_session(st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0]))
+                    except Exception:
+                        st.session_state.pending_rebuild = True
+                else:
+                    st.session_state.pending_rebuild = True
+            if errors:
+                st.warning("تمت الإضافة مع ملاحظات قراءة لبعض الملفات. راجعي جدول الملفات المقروءة.")
+            else:
+                st.success("تمت إضافة الملف وقراءة أثره ضمن نفس الصفحة.")
+            st.rerun()
+
+
+
+
+def build_cfo_executive_brief(exec_kpis: dict, pnl_model: dict, liq_model: dict, liq_diag: dict, profile: dict) -> dict:
+    revenue = float(exec_kpis.get("revenue") or exec_kpis.get("operating_revenue") or 0)
+    operating_revenue = float(exec_kpis.get("operating_revenue") or revenue or 0)
+    net_profit = float(exec_kpis.get("net_profit") or 0)
+    net_margin = (net_profit / revenue) if revenue else 0
+    opex_ratio = float(exec_kpis.get("opex_ratio") or 0)
+    gross_margin = float(exec_kpis.get("gross_margin") or 0)
+    sector = profile.get("sector", "النشاط")
+
+    if revenue <= 0:
+        headline = "لا يمكن إصدار تشخيص ربحي موثوق قبل قراءة الإيرادات."
+        issue = "مصدر الإيرادات غير مكتمل أو لم يُبنَ النموذج بعد."
+        action = "ارفع ملف المبيعات أو ميزان المراجعة، ثم أعد بناء النموذج."
+        tone = "danger"
+    elif net_profit < 0:
+        headline = "النشاط لا يحقق ربحًا صافيًا خلال الفترة الحالية."
+        issue = f"كل {revenue:,.0f} من الإيرادات انتهت إلى خسارة صافية تقارب {abs(net_profit):,.0f}. المشكلة ليست رقمًا محاسبيًا فقط؛ هي ضغط هامش أو مصاريف أو تكلفة إيراد أعلى من قدرة المبيعات."
+        action = "ابدأ بتحليل أكبر بنود المصروفات والتكلفة، ثم افصل البنود الثابتة عن المتغيرة قبل أي توسع أو التزام جديد."
+        tone = "danger"
+    elif opex_ratio > 0.55:
+        headline = "الشركة تحقق ربحًا، لكن جودة الربح تحت ضغط تشغيلي."
+        issue = f"المصاريف التشغيلية تستهلك {opex_ratio*100:.1f}% من الإيرادات. هذا لا يعني تناقضًا مع الربح؛ قد يوجد مجمل ربح كافٍ، لكن هامش الأمان ضعيف وأي تأخر تحصيل أو ارتفاع تكلفة قد يمتص الربح."
+        action = "راجع أكبر 10 مصاريف ثابتة وشبه ثابتة، وحدد أي بند لا يرتبط مباشرة بالإيراد أو التحصيل."
+        tone = "warning"
+    elif net_margin < 0.08:
+        headline = "الربح موجود لكنه لا يعطي مساحة كافية للمخاطر."
+        issue = f"هامش صافي الربح {net_margin*100:.1f}% فقط. في قطاع {sector}، هذا يحتاج مراقبة لأن أي خصومات أو مرتجعات أو تأخر تحصيل قد يحول الربح إلى ضغط نقدي."
+        action = "اربط المبيعات بالصافي بعد الخصومات والمرتجعات، ثم راقب التحصيل أسبوعيًا لا شهريًا."
+        tone = "warning"
+    else:
+        headline = "الوضع الربحي مقبول مبدئيًا، لكن القرار يعتمد على جودة النقد والتحصيل."
+        issue = f"هامش صافي الربح {net_margin*100:.1f}% ومجمل الهامش {gross_margin*100:.1f}%. لا يكفي الحكم من الربحية؛ يجب اختبار هل الربح يتحول إلى نقد."
+        action = "انتقل إلى السيولة والتحصيل، وحدد العملاء أو البنود التي تحبس النقد."
+        tone = "ok"
+
+    cash_line = ""
+    if liq_model.get("available") or (liq_model.get("cash") or {}).get("available"):
+        cash_line = f"قراءة النقد الحالية: {liq_diag.get('problem','تحتاج مراجعة السيولة')}."
+    else:
+        cash_line = "قراءة النقد غير مكتملة: ارفع تقرير السيولة النقدية أو أعمار العملاء ليتم تحويل الربحية إلى تشخيص نقدي."
+
+    return {"headline": headline, "issue": issue, "action": action, "cash_line": cash_line, "tone": tone}
 
 def make_file_record(uploaded):
     data = read_excel_file(uploaded)
@@ -223,34 +312,104 @@ def ingest_uploaded_files(uploaded_files, append: bool = False):
     return errors
 
 
+def build_models_from_session(revenue_definition: str | None = None):
+    """Build all financial models from the currently selected files.
+    Used by the upload page and by the readiness page after adding files directly.
+    """
+    revenue_definition = revenue_definition or st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0])
+    readable_files = [r for r in st.session_state.files if not r.get("read_error")]
+    revenue_record = next((r for r in readable_files if r.get("selected_role") == "official_revenue_source"), None)
+    expense_record = next((r for r in readable_files if r.get("selected_role") == "official_expense_source"), None)
+    tb_candidates = [r for r in readable_files if r.get("selected_role") == "validation_source" and r.get("detected_type") == "trial_balance"]
+    tb_record = next((r for r in tb_candidates if "ميزان" in r.get("file_name", "") or "trial" in r.get("file_name", "").lower()), None) or (tb_candidates[0] if tb_candidates else None)
+
+    revenue_model = build_revenue_model(revenue_record, revenue_definition) if revenue_record else None
+    expense_model = build_expense_model(expense_record, revenue_model.get("total_revenue", 0) if revenue_model else 0) if expense_record else None
+    if expense_model and st.session_state.expense_mapping is not None and st.session_state.expense_mapping_saved:
+        expense_model = apply_expense_mapping(expense_model, st.session_state.expense_mapping)
+
+    confirmed_months = st.session_state.selected_months
+    revenue_model = filter_revenue_model(revenue_model, confirmed_months) if revenue_model and confirmed_months else revenue_model
+    expense_model = filter_expense_model(expense_model, confirmed_months) if expense_model and confirmed_months else expense_model
+    revenue_total = revenue_model.get("total_revenue", 0) if revenue_model else 0
+    if expense_model and revenue_total:
+        expense_model["expense_ratio"] = expense_model.get("total_expenses", 0) / revenue_total
+
+    tb_model = parse_trial_balance(tb_record) if tb_record else None
+    financial_model = build_basic_financial_model(revenue_model, expense_model)
+    validation_checks = validate_project(st.session_state.file_rows, revenue_model, expense_model, tb_model)
+    pnl_model = build_pnl(revenue_model, expense_model, tb_model)
+    monthly_pnl_model = monthly_pnl(revenue_model, expense_model)
+    ratio_model = build_ratios(pnl_model, expense_model)
+    breakeven_model = build_breakeven(pnl_model, expense_model)
+    forecast_model, forecast_note = build_forecast(monthly_pnl_model)
+    glossary_model = build_glossary()
+    liquidity_model = build_liquidity_collections_model(st.session_state.files)
+
+    st.session_state.models = {
+        "revenue_model": revenue_model,
+        "expense_model": expense_model,
+        "tb_model": tb_model,
+        "financial_model": financial_model,
+        "validation_checks": validation_checks,
+        "pnl_model": pnl_model,
+        "monthly_pnl_model": monthly_pnl_model,
+        "ratio_model": ratio_model,
+        "breakeven_model": breakeven_model,
+        "forecast_model": forecast_model,
+        "forecast_note": forecast_note,
+        "glossary_model": glossary_model,
+        "confirmed_months": confirmed_months,
+        "expense_mapping": st.session_state.expense_mapping,
+        "revenue_definition": revenue_definition,
+    }
+    st.session_state.liquidity_model = liquidity_model
+    st.session_state.model_ready = True
+    st.session_state.pending_rebuild = False
+    return True
+
+
+
+
+PAGE_OPTIONS = [
+    "1. إعداد النشاط",
+    "2. رفع الملفات والمطابقة",
+    "3. جاهزية التحليل",
+    "4. التشخيص التنفيذي",
+    "5. مساحة التحليل",
+    "6. Scenario Studio",
+    "7. التنبيهات والإجراءات",
+    "8. التصدير",
+]
+
+def go_to(page_name: str):
+    if page_name in PAGE_OPTIONS:
+        st.session_state.nav_page = page_name
+        st.rerun()
+
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.1</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.2</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("## Wazen V12")
     st.caption("Financial Health & Action Intelligence")
+    if st.session_state.get("nav_page") not in PAGE_OPTIONS:
+        st.session_state.nav_page = PAGE_OPTIONS[0]
     page = st.radio(
         "مسار العمل",
-        [
-            "1. إعداد النشاط",
-            "2. رفع الملفات والمطابقة",
-            "3. جاهزية التحليل",
-            "4. التشخيص التنفيذي",
-            "5. مساحة التحليل",
-            "6. Scenario Studio",
-            "7. التنبيهات والإجراءات",
-            "8. التصدير",
-        ],
-        index=0,
+        PAGE_OPTIONS,
+        index=PAGE_OPTIONS.index(st.session_state.nav_page),
+        key="nav_page",
     )
     st.divider()
     if st.button("بدء تحليل جديد / مسح الحالي"):
         reset_all()
+        st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
-    st.caption("V12.1: UX polish + sectors + direct file add + safer readiness")
+    st.caption("V12.2: AI expense classification + CFO logic + guided readiness + centered scenarios")
 
 
 # -----------------------------------------------------------------------------
@@ -282,10 +441,9 @@ if page == "1. إعداد النشاط":
 
     st.caption("★ حقول أساسية. باقي الحقول تساعد في رفع دقة التفسير، ويمكن تعديلها لاحقًا.")
 
-    if st.button("حفظ سياق النشاط", type="primary"):
-        profile = refresh_business_profile()
-        st.success("تم حفظ سياق النشاط. الخطوة التالية: رفع الملفات والمطابقة.")
-        render_business_profile_summary(profile)
+    if st.button("حفظ سياق النشاط والانتقال للملفات", type="primary"):
+        refresh_business_profile()
+        go_to("2. رفع الملفات والمطابقة")
 
     st.markdown("### ما الذي سيستخدمه الإيجنت من هذه البيانات؟")
     st.table(pd.DataFrame([
@@ -361,7 +519,8 @@ elif page == "2. رفع الملفات والمطابقة":
         revenue_preview_record = next((r for r in readable_files if r.get("selected_role") == "official_revenue_source"), None)
         expense_preview_record = next((r for r in readable_files if r.get("selected_role") == "official_expense_source"), None)
 
-        revenue_definition = st.selectbox("تعريف الإيراد", REVENUE_DEFINITIONS, index=0)
+        revenue_definition = st.selectbox("تعريف الإيراد", REVENUE_DEFINITIONS, index=REVENUE_DEFINITIONS.index(st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0])) if st.session_state.get("revenue_definition") in REVENUE_DEFINITIONS else 0)
+        st.session_state.revenue_definition = revenue_definition
         preview_revenue_model = build_revenue_model(revenue_preview_record, revenue_definition) if revenue_preview_record else None
         preview_expense_model = build_expense_model(expense_preview_record, preview_revenue_model.get("total_revenue", 0) if preview_revenue_model else 0) if expense_preview_record else None
 
@@ -385,73 +544,26 @@ elif page == "2. رفع الملفات والمطابقة":
 
         if preview_expense_model and not preview_expense_model.get("expense_long", pd.DataFrame()).empty:
             industry = st.session_state.business_profile.get("activity") or st.session_state.business_profile.get("sector") or "غير محدد"
-            initial_mapping = apply_smart_classification(build_expense_mapping(preview_expense_model, industry), use_openai=False)
+            initial_mapping = apply_smart_classification(build_expense_mapping(preview_expense_model, industry), use_openai=True)
             current_signature = "|".join(initial_mapping["account_name"].astype(str).tolist())
             if st.session_state.mapping_signature != current_signature:
                 st.session_state.expense_mapping = initial_mapping.copy()
                 st.session_state.expense_mapping_saved = False
                 st.session_state.mapping_signature = current_signature
-            st.info("راجعي تصنيف المصاريف قبل بناء النموذج. التعديلات لا تدخل الحسابات إلا بعد الحفظ.")
+            st.info("التصنيف يبدأ تلقائيًا من ميزان المراجعة/تقرير المصاريف + قواعد مالية محسّنة، ويستخدم AI إذا كان مفتاح OpenAI متاحًا. المطلوب منك مراجعة الاستثناءات منخفضة الثقة فقط، لا إعادة التصنيف يدويًا من الصفر.")
             edited_mapping = render_expense_mapping_editor(st.session_state.expense_mapping, key_prefix="expense_mapping_v12")
-            if st.button("حفظ تصنيف المصاريف"):
+            if st.button("حفظ تصنيف المصاريف", type="secondary"):
                 st.session_state.expense_mapping = edited_mapping.copy()
                 st.session_state.expense_mapping_saved = True
-                st.success("تم حفظ التصنيف.")
+                st.success("تم حفظ التصنيف. يمكنك الآن بناء النموذج المالي.")
         else:
             st.info("لا توجد مصاريف كافية لبناء خريطة تصنيف الآن.")
 
         build_disabled = bool(preview_expense_model is not None and not st.session_state.expense_mapping_saved)
         if st.button("بناء النموذج المالي V12", disabled=build_disabled, type="primary"):
             with st.spinner("بناء النموذج المالي وطبقة السيولة والتحصيل..."):
-                readable_files = [r for r in st.session_state.files if not r.get("read_error")]
-                revenue_record = next((r for r in readable_files if r.get("selected_role") == "official_revenue_source"), None)
-                expense_record = next((r for r in readable_files if r.get("selected_role") == "official_expense_source"), None)
-                tb_candidates = [r for r in readable_files if r.get("selected_role") == "validation_source" and r.get("detected_type") == "trial_balance"]
-                tb_record = next((r for r in tb_candidates if "ميزان" in r.get("file_name", "") or "trial" in r.get("file_name", "").lower()), None) or (tb_candidates[0] if tb_candidates else None)
-
-                revenue_model = build_revenue_model(revenue_record, revenue_definition) if revenue_record else None
-                expense_model = build_expense_model(expense_record, revenue_model.get("total_revenue", 0) if revenue_model else 0) if expense_record else None
-                if expense_model and st.session_state.expense_mapping is not None and st.session_state.expense_mapping_saved:
-                    expense_model = apply_expense_mapping(expense_model, st.session_state.expense_mapping)
-
-                confirmed_months = st.session_state.selected_months
-                revenue_model = filter_revenue_model(revenue_model, confirmed_months) if revenue_model else None
-                expense_model = filter_expense_model(expense_model, confirmed_months) if expense_model else None
-                revenue_total = revenue_model.get("total_revenue", 0) if revenue_model else 0
-                if expense_model and revenue_total:
-                    expense_model["expense_ratio"] = expense_model.get("total_expenses", 0) / revenue_total
-
-                tb_model = parse_trial_balance(tb_record) if tb_record else None
-                financial_model = build_basic_financial_model(revenue_model, expense_model)
-                validation_checks = validate_project(st.session_state.file_rows, revenue_model, expense_model, tb_model)
-                pnl_model = build_pnl(revenue_model, expense_model, tb_model)
-                monthly_pnl_model = monthly_pnl(revenue_model, expense_model)
-                ratio_model = build_ratios(pnl_model, expense_model)
-                breakeven_model = build_breakeven(pnl_model, expense_model)
-                forecast_model, forecast_note = build_forecast(monthly_pnl_model)
-                glossary_model = build_glossary()
-                liquidity_model = build_liquidity_collections_model(st.session_state.files)
-
-                st.session_state.models = {
-                    "revenue_model": revenue_model,
-                    "expense_model": expense_model,
-                    "tb_model": tb_model,
-                    "financial_model": financial_model,
-                    "validation_checks": validation_checks,
-                    "pnl_model": pnl_model,
-                    "monthly_pnl_model": monthly_pnl_model,
-                    "ratio_model": ratio_model,
-                    "breakeven_model": breakeven_model,
-                    "forecast_model": forecast_model,
-                    "forecast_note": forecast_note,
-                    "glossary_model": glossary_model,
-                    "confirmed_months": confirmed_months,
-                    "expense_mapping": st.session_state.expense_mapping,
-                    "revenue_definition": revenue_definition,
-                }
-                st.session_state.liquidity_model = liquidity_model
-                st.session_state.model_ready = True
-            st.success("تم بناء نموذج V12. انتقلي إلى جاهزية التحليل أو التشخيص التنفيذي.")
+                build_models_from_session(revenue_definition)
+            go_to("3. جاهزية التحليل")
 
         if build_disabled:
             st.warning("احفظي تصنيف المصاريف قبل بناء النموذج.")
@@ -481,22 +593,14 @@ elif page == "3. جاهزية التحليل":
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("### إضافة ملفات من نفس الصفحة")
-    st.caption("لا تحتاجين الرجوع للبداية عند ظهور ملاحظة نقص. ارفعي الملف الإضافي هنا وسيتم ضمه للقراءة الحالية.")
-    add_files = st.file_uploader(
-        "إضافة ملف أو أكثر لتحسين الجاهزية",
-        type=["xlsx", "xls"],
-        accept_multiple_files=True,
-        key=f"readiness_extra_files_{st.session_state.uploader_key}",
-    )
-    if add_files and st.button("إضافة وقراءة الملفات الجديدة"):
-        with st.spinner("إضافة الملفات الجديدة وقراءة نوعها..."):
-            errors = ingest_uploaded_files(add_files, append=True)
-        if errors:
-            st.warning("تمت الإضافة مع وجود ملاحظات قراءة لبعض الملفات. راجعي جدول الملفات المقروءة.")
-        else:
-            st.success("تمت إضافة الملفات وقراءتها. أعيدي فتح الصفحة أو اضغطي تحديث لرؤية الجاهزية الجديدة.")
-        st.rerun()
+    render_readiness_upload_actions(profile)
+
+    if st.session_state.get("pending_rebuild"):
+        if st.button("إعادة بناء النموذج بالملفات المضافة الآن", type="primary"):
+            with st.spinner("إعادة بناء النموذج..."):
+                build_models_from_session(st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0]))
+            st.success("تم تحديث النموذج بالملفات الجديدة.")
+            st.rerun()
 
     st.markdown("### فحص الجاهزية")
     checks_df = profile["checks"].copy()
@@ -542,13 +646,15 @@ elif page == "4. التشخيص التنفيذي":
         liq_diag = liquidity_cfo_narrative(liq_model, pnl_model)
 
         st.markdown("### التشخيص قبل الأرقام")
-        primary_issue = liq_diag["problem"] if liq_model.get("available") else diag.get("situation", "تحتاج البيانات إلى استكمال")
-        primary_action = liq_diag["action"] if liq_model.get("available") else diag.get("action", "استكمال الملفات الأساسية وبناء النموذج")
+        cfo_brief = build_cfo_executive_brief(exec_kpis, pnl_model, liq_model, liq_diag, profile)
+        tone_class = "danger" if cfo_brief["tone"] == "danger" else "ok" if cfo_brief["tone"] == "ok" else "focus"
         st.markdown(f"""
-        <div class="wazen-action-box">
+        <div class="cfo-brief-pro">
             <h3>أكبر رسالة لصاحب العمل الآن</h3>
-            <p><strong>المشكلة المحتملة:</strong> {primary_issue}</p>
-            <p><strong>الإجراء العملي القادم:</strong> {primary_action}</p>
+            <p class="{tone_class}">{cfo_brief['headline']}</p>
+            <p><strong>لماذا؟</strong> {cfo_brief['issue']}</p>
+            <p><strong>السيولة والتحصيل:</strong> {cfo_brief['cash_line']}</p>
+            <p><strong>الإجراء العملي القادم:</strong> {cfo_brief['action']}</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -619,10 +725,12 @@ elif page == "5. مساحة التحليل":
                 with c1: kpi_card("إجمالي الإيرادات", f"{rev_quality['cards'].get('total',0):,.0f}", "خلال الفترة")
                 with c2: kpi_card("متوسط شهري", f"{rev_quality['cards'].get('avg',0):,.0f}", "متوسط محافظ")
                 with c3: kpi_card("أعلى شهر", str(rev_quality['cards'].get('best_month','—')), f"{rev_quality['cards'].get('max_share',0)*100:.1f}%")
-                with c4: kpi_card("استقرار الإيراد", f"{rev_quality['cards'].get('stability_score',0):.0f}/100", rev_quality['cards'].get('quality_status','—'))
-                render_insight_panel("قراءة CFO للإيراد", rev_quality["narrative"], rev_quality["risk"], rev_quality["action"], ["لا نكتفي بالمبيعات الإجمالية؛ في V12 القادم نقرأ الإجمالي والخصومات والمرتجعات والصافي عند توفر ملف تفصيلي."])
+                with c4: kpi_card("انتظام الإيراد", f"{rev_quality['cards'].get('stability_score',0):.0f}/100", "مؤشر يختبر التذبذب وتركيز أعلى شهر")
+                render_insight_panel("قراءة مالية للإيراد", rev_quality["narrative"], rev_quality["risk"], rev_quality["action"], ["انتظام الإيراد يعني: هل الإيراد متوازن عبر الأشهر أم معتمد على شهر أو عقد استثنائي؟", "لا نكتفي بالمبيعات الإجمالية؛ المرحلة التالية ستقرأ الإجمالي والخصومات والمرتجعات والصافي عند توفر ملف تفصيلي."])
+                st.markdown("#### تفسير مؤشرات جودة الإيراد")
+                st.dataframe(rev_quality.get("quality_table", pd.DataFrame()), use_container_width=True, hide_index=True)
                 line_chart(rev_monthly, "month", "revenue", "اتجاه الإيرادات")
-                st.dataframe(rev_monthly, use_container_width=True, hide_index=True)
+                st.dataframe(rev_quality.get("monthly_table", rev_monthly), use_container_width=True, hide_index=True)
             else:
                 st.info("لا توجد بيانات إيرادات كافية.")
 
@@ -650,7 +758,13 @@ elif page == "5. مساحة التحليل":
                     st.dataframe(monthly, use_container_width=True, hide_index=True)
                     line_chart(monthly, "month", "ending_cash_proxy", "اتجاه الرصيد النقدي التراكمي")
             else:
-                st.warning("لا يوجد تقرير سيولة نقدية مقروء. يمكن استخدام كشوف البنك لاحقًا للتحقق والتفصيل.")
+                st.warning("لا يوجد تقرير سيولة نقدية مقروء. يمكن استخدام كشوف البنك لاحقًا للتحقق والتفصيل، لكن الأفضل رفع تقرير السيولة النقدية للحصول على قراءة شهرية مباشرة.")
+                cash_extra = st.file_uploader("إضافة تقرير السيولة النقدية من هنا", type=["xlsx", "xls"], accept_multiple_files=True, key="cash_tab_extra_upload")
+                if cash_extra and st.button("قراءة تقرير السيولة وتحديث التحليل", key="cash_tab_extra_btn"):
+                    ingest_uploaded_files(cash_extra, append=True)
+                    build_models_from_session(st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0]))
+                    st.success("تم تحديث تحليل السيولة.")
+                    st.rerun()
 
         with tabs[3]:
             st.subheader("التحصيل وأعمار العملاء")
@@ -667,7 +781,13 @@ elif page == "5. مساحة التحليل":
                     "name": "العميل", "balance": "الرصيد", "age_days": "عمر الدين", "last_payment": "آخر سداد", "risk_level": "الخطر", "recommended_action": "الإجراء"
                 }), use_container_width=True, hide_index=True)
             else:
-                st.warning("لا يوجد ملف أعمار عملاء. لن نكتفي بتوصية عامة؛ عند رفعه سيظهر العملاء والأرصدة والأولوية.")
+                st.warning("لا يوجد ملف أعمار عملاء. لن نكتفي بتوصية عامة؛ عند رفعه سيظهر العملاء والأرصدة وأولوية التحصيل بالأسماء.")
+                ar_extra = st.file_uploader("إضافة أعمار ديون العملاء من هنا", type=["xlsx", "xls"], accept_multiple_files=True, key="ar_tab_extra_upload")
+                if ar_extra and st.button("قراءة أعمار العملاء وتحديث التحليل", key="ar_tab_extra_btn"):
+                    ingest_uploaded_files(ar_extra, append=True)
+                    build_models_from_session(st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0]))
+                    st.success("تم تحديث تحليل التحصيل.")
+                    st.rerun()
 
         with tabs[4]:
             st.subheader("المصاريف وهيكل التكلفة")
@@ -716,18 +836,24 @@ elif page == "6. Scenario Studio":
         st.dataframe(pre, use_container_width=True, hide_index=True)
 
         st.markdown("### سيناريو تفاعلي")
+        st.caption("كل مؤشر مضبوط بحيث يكون 0 في المنتصف: اليمين يعني تحسن/زيادة، واليسار يعني انخفاض/تراجع. القيم هنا تغير عن الوضع الحالي وليست أرقامًا نهائية جامدة.")
+        base_collection = 40
         c1,c2,c3 = st.columns(3)
         with c1:
-            sales_growth = st.slider("نمو المبيعات %", -30, 50, 0)
-            discount_rate = st.slider("نسبة الخصومات %", 0, 30, 0)
-            return_rate = st.slider("نسبة المرتجعات %", 0, 30, 0)
+            sales_growth = st.slider("تغير المبيعات %", -50, 50, 0)
+            discount_delta = st.slider("تغير الخصومات — نقطة مئوية", -30, 30, 0)
+            return_delta = st.slider("تغير المرتجعات — نقطة مئوية", -30, 30, 0)
         with c2:
-            collection_rate = st.slider("نسبة التحصيل المتوقعة %", 0, 100, 40)
-            opex_change = st.slider("تغير المصروفات %", -30, 50, 0)
-            cogs_change = st.slider("تغير تكلفة المبيعات %", -20, 40, 0)
+            collection_delta = st.slider("تحسن/تراجع التحصيل — نقطة مئوية", -50, 50, 0)
+            opex_change = st.slider("تغير المصروفات %", -50, 50, 0)
+            cogs_change = st.slider("تغير تكلفة المبيعات %", -50, 50, 0)
         with c3:
             supplier_payment = st.number_input("دفعات موردين إضافية", value=0.0, step=1000.0)
             tax_payment = st.number_input("ضريبة/زكاة متوقعة", value=0.0, step=1000.0)
+
+        discount_rate = max(0, discount_delta)
+        return_rate = max(0, return_delta)
+        collection_rate = max(0, min(100, base_collection + collection_delta))
 
         res = run_simple_scenario(base, {
             "sales_growth_pct": sales_growth,

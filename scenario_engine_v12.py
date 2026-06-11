@@ -21,9 +21,9 @@ def base_inputs_from_models(models: dict | None, liquidity_model: dict | None = 
     ar_cards = (((liquidity_model or {}).get("ar") or {}).get("cards") or {})
     ap_cards = (((liquidity_model or {}).get("ap") or {}).get("cards") or {})
 
-    total_revenue = _num(pnl.get("total_revenue"), _num(revenue.get("total_revenue")))
+    total_revenue = _num(pnl.get("revenue"), _num(pnl.get("total_revenue"), _num(revenue.get("total_revenue"))))
     cogs = _num(pnl.get("cogs"), 0)
-    opex = _num(pnl.get("operating_expenses"), _num(expense.get("total_expenses"), 0))
+    opex = _num(pnl.get("opex"), _num(pnl.get("operating_expenses"), _num(expense.get("total_expenses"), 0)))
     cash = _num(cash_cards.get("ending_cash"), 0)
     monthly_cash_out = _num(cash_cards.get("avg_monthly_cash_out"), 0)
     ar = _num(ar_cards.get("total_balance"), 0)
