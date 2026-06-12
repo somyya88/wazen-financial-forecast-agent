@@ -184,8 +184,8 @@ def build_expense_insights(pnl_model: dict, expense_model: dict | None) -> dict:
 
     if other_ratio > 0.15:
         status = "تصنيف المصاريف يحتاج تفصيل"
-        risk = f"بند Other Opex مرتفع ويمثل {other_ratio*100:.1f}% من الإيرادات، ما يقلل دقة قرارات خفض التكاليف."
-        decision = "الإجراء المقترح: تفصيل بنود Other Opex أولاً، ثم إعادة بناء تحليل المصاريف ونقطة التعادل."
+        risk = f"بند Needs Review مرتفع ويمثل {other_ratio*100:.1f}% من الإيرادات، ما يقلل دقة قرارات خفض التكاليف."
+        decision = "الإجراء المقترح: تفصيل بنود Needs Review أولاً، ثم إعادة بناء تحليل المصاريف ونقطة التعادل."
     elif max_ratio > 0.20:
         status = "تركز مصاريف واضح"
         risk = f"أكبر بند مصاريف هو {max_cat} ويمثل {max_ratio*100:.1f}% من الإيرادات."
@@ -205,7 +205,7 @@ def build_expense_insights(pnl_model: dict, expense_model: dict | None) -> dict:
         "bullets": [
             f"أكبر بند مصاريف: {max_cat} بقيمة {max_amount:,.0f}.",
             f"نسبة أكبر بند من الإيراد: {max_ratio*100:.1f}%.",
-            f"نسبة Other Opex من الإيراد: {other_ratio*100:.1f}%.",
+            f"نسبة Needs Review من الإيراد: {other_ratio*100:.1f}%.",
         ],
         "expense_ratio_df": ratio_df[["التصنيف", "المبلغ", "النسبة من الإيراد", "التقييم"]],
     }

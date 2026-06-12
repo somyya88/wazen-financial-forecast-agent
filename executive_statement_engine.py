@@ -16,7 +16,7 @@ def build_executive_income_statement(pnl_model: dict, expense_model: dict | None
     Gross Profit
     G&A
     Selling & Marketing
-    Other Opex
+    Needs Review
     Total Operating Expenses
     Operating Profit
     Finance Costs
@@ -60,7 +60,7 @@ def build_executive_income_statement(pnl_model: dict, expense_model: dict | None
                     selling += amount
                 elif cat in ["Finance Costs"]:
                     finance += amount
-                elif cat in ["Other Opex"]:
+                elif cat in ["Needs Review"]:
                     other += amount
                 else:
                     admin += amount

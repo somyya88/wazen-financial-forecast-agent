@@ -50,30 +50,41 @@ def run_simple_scenario(base: dict, assumptions: dict) -> dict:
     ap = _num(base.get("ap_balance"))
 
     sales_growth = _num(assumptions.get("sales_growth_pct")) / 100
-    discount_rate = _num(assumptions.get("discount_rate_pct")) / 100
-    return_rate = _num(assumptions.get("return_rate_pct")) / 100
-    collection_rate = _num(assumptions.get("collection_rate_pct")) / 100
+    # V12.5: discount/return sliders are changes around the current case.
+    # Positive values reduce net sales; negative values represent improvement.
+    discount_change = _num(assumptions.get("discount_change_pp", assumptions.get("discount_change_pp", 0))) / 100
+    return_change = _num(assumptions.get("return_change_pp", assumptions.get("return_change_pp", 0))) / 100
+    collection_rate = _num(assumptions.get("collection_rate_pct"), 40) / 100
+    dso_delta = _num(assumptions.get("dso_days_delta"), 0)
+    dpo_delta = _num(assumptions.get("dpo_days_delta"), 0)
     opex_change = _num(assumptions.get("opex_change_pct")) / 100
     cogs_change = _num(assumptions.get("cogs_change_pct")) / 100
     tax_payment = _num(assumptions.get("tax_payment"))
     supplier_payment = _num(assumptions.get("supplier_payment"))
 
     gross_sales = revenue * (1 + sales_growth)
-    leakage = gross_sales * max(0, discount_rate + return_rate)
+    leakage = gross_sales * (discount_change + return_change)
     net_sales = max(0, gross_sales - leakage)
     cogs_forecast = cogs * (1 + cogs_change) * (net_sales / revenue if revenue else 1)
     opex_forecast = opex * (1 + opex_change)
     gross_profit = net_sales - cogs_forecast
     net_profit = gross_profit - opex_forecast
 
-    expected_collection = (net_sales * collection_rate) + (ar * min(collection_rate, 1))
-    expected_cash_out = monthly_cash_out + supplier_payment + tax_payment + max(0, opex_forecast - opex) / 5
+    # DSO impact: reducing days accelerates cash collection; increasing days delays cash.
+    dso_cash_factor = max(-0.6, min(0.6, -dso_delta / 90))
+    expected_collection = ((net_sales * collection_rate) + (ar * min(collection_rate, 1))) * (1 + dso_cash_factor)
+    # DPO impact: increasing payment days preserves cash in the short term; reducing days consumes cash.
+    dpo_cash_factor = max(-0.5, min(0.5, -dpo_delta / 90))
+    supplier_timing_effect = supplier_payment * (1 + dpo_cash_factor)
+    expected_cash_out = monthly_cash_out + supplier_timing_effect + tax_payment + max(0, opex_forecast - opex) / 5
     ending_cash_30 = cash + expected_collection - expected_cash_out
     runway = ending_cash_30 / expected_cash_out if expected_cash_out else None
 
     return {
         "gross_sales": gross_sales,
         "commercial_leakage": leakage,
+        "dso_days_delta": dso_delta,
+        "dpo_days_delta": dpo_delta,
         "net_sales": net_sales,
         "gross_profit": gross_profit,
         "net_profit": net_profit,
@@ -87,11 +98,11 @@ def run_simple_scenario(base: dict, assumptions: dict) -> dict:
 
 def predefined_scenarios(base: dict) -> pd.DataFrame:
     scenarios = {
-        "الوضع الحالي": {"sales_growth_pct": 0, "discount_rate_pct": 0, "return_rate_pct": 0, "collection_rate_pct": 40, "opex_change_pct": 0, "cogs_change_pct": 0, "supplier_payment": 0, "tax_payment": 0},
-        "تحصيل أفضل": {"sales_growth_pct": 0, "discount_rate_pct": 0, "return_rate_pct": 0, "collection_rate_pct": 65, "opex_change_pct": 0, "cogs_change_pct": 0, "supplier_payment": 0, "tax_payment": 0},
-        "تسرب تجاري مرتفع": {"sales_growth_pct": 5, "discount_rate_pct": 8, "return_rate_pct": 10, "collection_rate_pct": 40, "opex_change_pct": 0, "cogs_change_pct": 0, "supplier_payment": 0, "tax_payment": 0},
-        "ضغط سيولة": {"sales_growth_pct": -5, "discount_rate_pct": 3, "return_rate_pct": 5, "collection_rate_pct": 25, "opex_change_pct": 5, "cogs_change_pct": 3, "supplier_payment": 0, "tax_payment": 0},
-        "ضبط مصروفات": {"sales_growth_pct": 0, "discount_rate_pct": 0, "return_rate_pct": 0, "collection_rate_pct": 45, "opex_change_pct": -10, "cogs_change_pct": 0, "supplier_payment": 0, "tax_payment": 0},
+        "الوضع الحالي": {"sales_growth_pct": 0, "discount_change_pp": 0, "return_change_pp": 0, "collection_rate_pct": 40, "opex_change_pct": 0, "cogs_change_pct": 0, "supplier_payment": 0, "tax_payment": 0},
+        "تحصيل أفضل": {"sales_growth_pct": 0, "discount_change_pp": 0, "return_change_pp": 0, "collection_rate_pct": 65, "opex_change_pct": 0, "cogs_change_pct": 0, "supplier_payment": 0, "tax_payment": 0},
+        "تسرب تجاري مرتفع": {"sales_growth_pct": 5, "discount_change_pp": 8, "return_change_pp": 10, "collection_rate_pct": 40, "opex_change_pct": 0, "cogs_change_pct": 0, "supplier_payment": 0, "tax_payment": 0},
+        "ضغط سيولة": {"sales_growth_pct": -5, "discount_change_pp": 3, "return_change_pp": 5, "collection_rate_pct": 25, "opex_change_pct": 5, "cogs_change_pct": 3, "supplier_payment": 0, "tax_payment": 0},
+        "ضبط مصروفات": {"sales_growth_pct": 0, "discount_change_pp": 0, "return_change_pp": 0, "collection_rate_pct": 45, "opex_change_pct": -10, "cogs_change_pct": 0, "supplier_payment": 0, "tax_payment": 0},
     }
     rows = []
     for name, assumptions in scenarios.items():

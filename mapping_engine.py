@@ -13,9 +13,8 @@ CATEGORY_OPTIONS = [
     "Bank Charges",
     "Admin Opex",
     "Selling Opex",
-    "Other Opex",
+    "Needs Review",
 ]
-
 COST_BEHAVIOR_OPTIONS = [
     "Fixed",
     "Variable",
@@ -35,7 +34,7 @@ DEFAULT_COST_BEHAVIOR = {
     "Bank Charges": "Variable",
     "Admin Opex": "Fixed",
     "Selling Opex": "Semi-variable",
-    "Other Opex": "Fixed",
+    "Needs Review": "Fixed",
 }
 
 TRANSPORT_DIRECT_KEYWORDS = [
@@ -57,7 +56,7 @@ def suggest_category_for_transport(account_name: str, current_category: str) -> 
 
     if current_category == "Interest":
         return "Finance Costs"
-    return current_category if current_category in CATEGORY_OPTIONS else "Other Opex"
+    return current_category if current_category in CATEGORY_OPTIONS else "Needs Review"
 
 def build_expense_mapping(expense_model: dict, industry: str = "") -> pd.DataFrame:
     exp_long = expense_model.get("expense_long", pd.DataFrame()) if expense_model else pd.DataFrame()

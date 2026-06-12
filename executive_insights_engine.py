@@ -149,7 +149,7 @@ def build_break_even_confidence(expense_mapping_df=None, data_quality=None):
             other_share = df["user_category"].astype(str).str.contains("Other", case=False, na=False).mean()
             if other_share > 0.25:
                 score -= 15
-                reasons.append("نسبة Other Opex مرتفعة وتؤثر على دقة توزيع التكاليف.")
+                reasons.append("نسبة Needs Review مرتفعة وتؤثر على دقة توزيع التكاليف.")
     else:
         score -= 20
         reasons.append("لا يوجد جدول تصنيف مصاريف كافٍ لتقييم الثقة.")

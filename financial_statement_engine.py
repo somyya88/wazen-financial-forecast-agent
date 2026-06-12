@@ -101,7 +101,7 @@ def build_management_income_statement(pnl_model: dict, expense_model: dict | Non
     = Gross Operating Margin
     - Administrative Expenses
     - Selling & Marketing Expenses
-    - Finance Costs / Other Opex
+    - Finance Costs / Needs Review
     = Net Profit
     """
     import pandas as pd
@@ -132,7 +132,7 @@ def build_management_income_statement(pnl_model: dict, expense_model: dict | Non
                 selling += amount
             elif cat in ["Finance Costs"]:
                 finance += amount
-            elif cat in ["Other Opex"]:
+            elif cat in ["Needs Review"]:
                 other += amount
             else:
                 admin += amount

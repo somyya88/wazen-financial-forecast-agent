@@ -70,7 +70,7 @@ def build_data_quality_score(pnl_model: dict, revenue_model: dict | None, expens
         other_share = other / total if total else 0
         if other_share > 0.25:
             score -= 15
-            checks.append(("تصنيف المصاريف", f"Other Opex يمثل {other_share*100:.1f}% من المصاريف", "يحتاج مراجعة"))
+            checks.append(("تصنيف المصاريف", f"Needs Review يمثل {other_share*100:.1f}% من المصاريف", "يحتاج مراجعة"))
         else:
             checks.append(("تصنيف المصاريف", "نسبة البنود العامة ضمن مستوى مقبول", "جيد"))
     else:

@@ -16,9 +16,8 @@ CATEGORY_OPTIONS = [
     "Bank Charges",
     "Selling & Marketing",
     "Administrative Expenses",
-    "Other Opex",
+    "Needs Review",
 ]
-
 COST_BEHAVIOR_OPTIONS = ["Fixed", "Variable", "Semi-variable"]
 
 def _norm(text):
@@ -128,7 +127,7 @@ def classify_account_rule_based(account_name, amount=0, source_category=None, se
     if not score:
         if source_category and str(source_category).strip() and "Other" not in str(source_category):
             return str(source_category), "Fixed", 45, "تم الحفاظ على التصنيف السابق لعدم وجود كلمات دلالية كافية", "rules"
-        return "Other Opex", "Fixed", 25, "لم يتم العثور على مؤشرات كافية للتصنيف", "rules"
+        return "Needs Review", "Fixed", 25, "لم يتم العثور على مؤشرات كافية؛ يحتاج مراجعة بشرية بدل اعتماده كبنود بحاجة مراجعة", "rules"
 
     score.sort(reverse=True, key=lambda x: x[0])
     points, category, behavior, reason = score[0]
@@ -192,7 +191,7 @@ Classification principles:
 - Advertising, promotion, commissions, sales-related costs should be Selling & Marketing.
 - Interest, loans, financing charges should be Finance Costs.
 - Bank fees should be Bank Charges.
-- Use Other Opex only when no reasonable category can be inferred.
+- Use Needs Review only when no reasonable category can be inferred. Do not use it for clear SaaS operating, sales, or administrative accounts.
 - Choose cost behavior: Fixed, Variable, Semi-variable.
 - Return strict JSON only.
 """
@@ -235,13 +234,13 @@ Classification principles:
                 idx = int(item.get("id"))
             except Exception:
                 continue
-            category = item.get("category", "Other Opex")
+            category = item.get("category", "Needs Review")
             behavior = item.get("cost_behavior", "Fixed")
             raw_conf = float(item.get("confidence", 70))
             confidence = int(raw_conf * 100) if 0 <= raw_conf <= 1 else int(raw_conf)
             reason = str(item.get("reason", "تصنيف بالذكاء الصناعي"))
             if category not in CATEGORY_OPTIONS:
-                category = "Other Opex"
+                category = "Needs Review"
             if behavior not in COST_BEHAVIOR_OPTIONS:
                 behavior = "Fixed"
             result[idx] = (category, behavior, max(0, min(100, confidence)), reason, "openai")
@@ -288,13 +287,13 @@ def apply_smart_classification(mapping_df: pd.DataFrame, sector_context="", use_
                     global_idx = start + local_idx
                     if 0 <= global_idx < len(categories):
                         ai_cat, ai_beh, ai_conf, ai_reason, ai_source = result
-                        # لا نسمح للذكاء الصناعي بإلغاء تصنيف قاعدي واضح إلى Other Opex منخفض الثقة.
+                        # لا نسمح للذكاء الصناعي بإلغاء تصنيف قاعدي واضح إلى Needs Review منخفض الثقة.
                         # الهدف أن يقل العمل اليدوي لا أن يزيد.
                         rule_conf = confidences[global_idx]
                         rule_cat = categories[global_idx]
-                        if ai_cat == "Other Opex" and ai_conf < 70 and rule_cat != "Other Opex" and rule_conf >= 70:
+                        if ai_cat in ["Needs Review", "Needs Review"] and ai_conf < 70 and rule_cat not in ["Needs Review", "Needs Review"] and rule_conf >= 70:
                             continue
-                        if ai_conf >= rule_conf or rule_cat == "Other Opex":
+                        if ai_conf >= rule_conf or rule_cat in ["Needs Review", "Needs Review"]:
                             categories[global_idx], behaviors[global_idx], confidences[global_idx], reasons[global_idx], sources[global_idx] = result
 
     out["current_category"] = categories
@@ -320,7 +319,7 @@ def expense_display_group(category):
         return "3. مصاريف بيع وتسويق"
     if cat in ["Finance Costs", "Bank Charges"]:
         return "4. مصاريف تمويلية وبنكية"
-    return "5. مصاريف أخرى"
+    return "5. بحاجة مراجعة"
 
 def expense_display_order(category):
     cat = str(category or "")
@@ -341,7 +340,8 @@ def expense_display_order(category):
         "Selling Opex": 32,
         "Finance Costs": 40,
         "Bank Charges": 41,
-        "Other Opex": 50,
+        "Needs Review": 50,
+        "Needs Review": 50,
     }
     return order.get(cat, 99)
 
@@ -355,4 +355,4 @@ def normalize_for_pnl_category(category):
         return "admin_opex"
     if cat in ["Finance Costs"]:
         return "finance_costs"
-    return "other_opex"
+    return "needs_review"

@@ -15,7 +15,7 @@ CATEGORY_OPTIONS = [
     "Bank Charges",
     "Selling & Marketing",
     "Administrative Expenses",
-    "Other Opex",
+    "Needs Review",
 ]
 COST_BEHAVIOR_OPTIONS = ["Fixed", "Variable", "Semi-variable"]
 
@@ -53,7 +53,7 @@ def render_expense_mapping_editor(mapping_df: pd.DataFrame, key_prefix: str = "e
 
     c5, c6, c7, c8 = st.columns([1, 1, 1, 1])
     with c5:
-        only_other = st.checkbox("Other Opex فقط", value=False, key=f"{key_prefix}_other")
+        only_other = st.checkbox("بحاجة مراجعة فقط", value=False, key=f"{key_prefix}_other")
     with c6:
         only_review = st.checkbox("يحتاج مراجعة فقط", value=False, key=f"{key_prefix}_review")
     with c7:
@@ -65,7 +65,7 @@ def render_expense_mapping_editor(mapping_df: pd.DataFrame, key_prefix: str = "e
     with c8a:
         max_rows = st.number_input("عدد الصفوف", min_value=10, max_value=500, value=120, step=10, key=f"{key_prefix}_rows")
     with c8b:
-        st.caption("يحتاج مراجعة = ثقة أقل من 70% أو مصنف Other Opex أو سبب التصنيف غير كافٍ. هذا يقلل العمل اليدوي إلى البنود المشكوك بها فقط.")
+        st.caption("يحتاج مراجعة = ثقة أقل من 70% أو مصنف بحاجة مراجعة أو سبب التصنيف غير كافٍ. هذا يقلل العمل اليدوي إلى البنود المشكوك بها فقط.")
 
     c9, c10 = st.columns([1, 3])
     with c9:
@@ -88,15 +88,15 @@ def render_expense_mapping_editor(mapping_df: pd.DataFrame, key_prefix: str = "e
         filtered = filtered[filtered["cost_behavior"].astype(str) == behavior_filter]
     if only_other:
         filtered = filtered[
-            filtered["current_category"].astype(str).str.contains("Other", case=False, na=False)
-            | filtered["user_category"].astype(str).str.contains("Other", case=False, na=False)
+            filtered["current_category"].astype(str).str.contains("Needs Review|Other", case=False, na=False, regex=True)
+            | filtered["user_category"].astype(str).str.contains("Needs Review|Other", case=False, na=False, regex=True)
         ]
     if only_review:
         conf = pd.to_numeric(filtered.get("classification_confidence", 0), errors="coerce").fillna(0)
         reason = filtered.get("classification_reason", "").astype(str) if "classification_reason" in filtered.columns else pd.Series("", index=filtered.index)
         filtered = filtered[
             (conf < 70)
-            | filtered["user_category"].astype(str).str.contains("Other", case=False, na=False)
+            | filtered["user_category"].astype(str).str.contains("Needs Review|Other", case=False, na=False, regex=True)
             | reason.str.contains("لم يتم|غير كافية|عدم وجود", case=False, na=False)
         ]
     if only_large:
@@ -123,7 +123,7 @@ def render_expense_mapping_editor(mapping_df: pd.DataFrame, key_prefix: str = "e
 
     total_amount = base["amount"].sum()
     shown_amount = filtered["amount"].sum()
-    other_amount = base.loc[base["user_category"].astype(str).str.contains("Other", case=False, na=False), "amount"].sum()
+    other_amount = base.loc[base["user_category"].astype(str).str.contains("Needs Review|Other", case=False, na=False, regex=True), "amount"].sum()
     other_pct = (other_amount / total_amount * 100) if total_amount else 0
 
     low_conf_count = 0
@@ -134,7 +134,7 @@ def render_expense_mapping_editor(mapping_df: pd.DataFrame, key_prefix: str = "e
     m1.metric("إجمالي البنود", f"{len(base):,}")
     m2.metric("البنود المعروضة", f"{len(filtered):,}")
     m3.metric("قيمة البنود المعروضة", f"{shown_amount:,.0f}")
-    m4.metric("Other Opex", f"{other_pct:.1f}%")
+    m4.metric("بحاجة مراجعة", f"{other_pct:.1f}%")
     m5.metric("منخفضة الثقة", f"{low_conf_count:,}")
 
     st.caption("التعديلات تتم على الصفوف المعروضة فقط، ثم تُدمج تلقائياً مع كامل جدول التصنيف عند الحفظ. الفلاتر في أعلى اللوحة هي البديل الآمن عن فلاتر أعمدة الجدول الافتراضية في Streamlit.")

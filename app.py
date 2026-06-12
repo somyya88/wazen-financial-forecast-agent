@@ -420,7 +420,7 @@ def build_models_from_session(revenue_definition: str | None = None):
     glossary_model = build_glossary()
     liquidity_model = build_liquidity_collections_model(st.session_state.files)
     comprehensive_model = build_comprehensive_financial_analysis(
-        tb_model, pnl_model, expense_model, revenue_model, monthly_pnl_model, liquidity_model, refresh_business_profile()
+        tb_model, pnl_model, expense_model, revenue_model, monthly_pnl_model, liquidity_model, refresh_business_profile(), breakeven_model, st.session_state.get("ai_narrative_enabled", False)
     )
 
     st.session_state.models = {
@@ -468,7 +468,7 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.4</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.5</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
@@ -487,7 +487,8 @@ with st.sidebar:
         reset_all()
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
-    st.caption("V12.4: Financial Ratios + Vertical/Horizontal Analysis + CFO Reading")
+    st.checkbox("تفعيل صياغة AI للملخص التنفيذي إذا كان المفتاح متاحًا", key="ai_narrative_enabled", value=st.session_state.get("ai_narrative_enabled", False))
+    st.caption("V12.5: Diagnostic Rules + CFO Narrative + Health Score")
 
 
 # -----------------------------------------------------------------------------
@@ -622,13 +623,17 @@ elif page == "2. رفع الملفات والمطابقة":
 
         if preview_expense_model and not preview_expense_model.get("expense_long", pd.DataFrame()).empty:
             industry = st.session_state.business_profile.get("activity") or st.session_state.business_profile.get("sector") or "غير محدد"
-            initial_mapping = apply_smart_classification(build_expense_mapping(preview_expense_model, industry), sector_context=industry, use_openai=True)
-            current_signature = "|".join(initial_mapping["account_name"].astype(str).tolist())
-            if st.session_state.mapping_signature != current_signature:
+            base_mapping = build_expense_mapping(preview_expense_model, industry)
+            current_signature = "|".join(base_mapping["account_name"].astype(str).tolist())
+            # Performance fix: do not re-run AI/rule classification on every table edit.
+            # Classification is generated once per file signature, then user edits remain as a draft until saved.
+            if st.session_state.mapping_signature != current_signature or st.session_state.expense_mapping is None:
+                with st.spinner("تصنيف الحسابات لأول مرة حسب القطاع..."):
+                    initial_mapping = apply_smart_classification(base_mapping, sector_context=industry, use_openai=True)
                 st.session_state.expense_mapping = initial_mapping.copy()
                 st.session_state.expense_mapping_saved = False
                 st.session_state.mapping_signature = current_signature
-            st.info("تم بناء خريطة المصاريف من الحسابات نفسها مع مراعاة القطاع المحدد. في الشركات البرمجية، الرواتب التشغيلية وخدمات التنفيذ/الدعم تُعامل كتكلفة إيراد عند وجود دلالة واضحة، ورواتب المبيعات تُعامل ضمن البيع والتسويق، والرواتب الإدارية ضمن المصاريف الإدارية. راجعي فقط البنود منخفضة الثقة أو المصنفة كمصاريف أخرى.")
+            st.info("تم بناء خريطة المصاريف من الحسابات نفسها مع مراعاة القطاع المحدد. في الشركات البرمجية، الرواتب التشغيلية وخدمات التنفيذ/الدعم تُعامل كتكلفة إيراد عند وجود دلالة واضحة، ورواتب المبيعات ضمن البيع والتسويق، والرواتب الإدارية ضمن المصاريف الإدارية. راجعي فقط البنود منخفضة الثقة أو المصنفة بحاجة مراجعة.")
             edited_mapping = render_expense_mapping_editor(st.session_state.expense_mapping, key_prefix="expense_mapping_v12")
             if st.button("حفظ تصنيف المصاريف", type="secondary"):
                 st.session_state.expense_mapping = edited_mapping.copy()
@@ -756,6 +761,20 @@ elif page == "4. التشخيص التنفيذي":
         </div>
         """, unsafe_allow_html=True)
 
+        health = full_model.get("financial_health_score", {}) if full_model else {}
+        questions = cfo_reading.get("four_questions", {}) if cfo_reading else {}
+        if health:
+            h1, h2 = st.columns([1, 3])
+            with h1:
+                kpi_card("Financial Health Score", f"{health.get('score',0):.0f}/100", health.get("label", ""))
+            with h2:
+                if cfo_reading.get("ai_summary"):
+                    st.markdown("#### قراءة AI CFO")
+                    st.write(cfo_reading.get("ai_summary"))
+                if questions:
+                    st.markdown("#### الأسئلة الأربعة")
+                    st.dataframe(pd.DataFrame([{"السؤال": k, "الإجابة": v} for k, v in questions.items()]), use_container_width=True, hide_index=True)
+
         st.markdown("### الإجابات التي تهم صاحب العمل")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
@@ -846,6 +865,17 @@ elif page == "5. مساحة التحليل":
         with tabs[1]:
             st.subheader("النسب المالية ومعايير السلامة")
             st.caption("هذه النسب هي الحد الأدنى لأي محلل مالي: ربحية، سيولة، مديونية، وكفاءة. المعايير هنا إرشادية قابلة للتعديل حسب القطاع والمدينة ونموذج العمل.")
+            health = full_model.get("financial_health_score", {})
+            findings_df = full_model.get("diagnostic_findings", pd.DataFrame())
+            if health:
+                c1, c2 = st.columns([1, 3])
+                with c1:
+                    kpi_card("Financial Health Score", f"{health.get('score',0):.0f}/100", health.get("label", ""))
+                with c2:
+                    st.caption("الدرجة مركبة من الربحية والسيولة ورأس المال العامل والمديونية وجودة التدفق النقدي. انخفاض الدرجة يجب أن يظهر معه سبب وإجراء، وليس رقمًا فقط.")
+            if isinstance(findings_df, pd.DataFrame) and not findings_df.empty:
+                st.markdown("#### أهم نتائج التشخيص مرتبة حسب الأولوية")
+                st.dataframe(findings_df.drop(columns=["الأولوية"], errors="ignore").head(5), use_container_width=True, hide_index=True)
             ratio_df = full_model.get("ratios", pd.DataFrame())
             if not ratio_df.empty:
                 groups = list(ratio_df["المجموعة"].dropna().unique())
@@ -858,7 +888,7 @@ elif page == "5. مساحة التحليل":
                     st.success("لا تظهر مؤشرات خطر حادة ضمن النسب المحسوبة، لكن القرار النهائي يحتاج قراءة السيولة والتحصيل والتصنيف النهائي للمصاريف.")
                 else:
                     for _, r in risk_rows.head(5).iterrows():
-                        st.warning(f"{r['المؤشر']}: {r['النتيجة']} — {r['القراءة']}")
+                        st.warning(f"{r['المؤشر']}: {r['النتيجة']} — {r.get('قراءة CFO', r.get('قراءة أولية', ""))}")
             else:
                 st.info("لا يمكن حساب النسب قبل بناء قائمة دخل ومركز مالي.")
 
@@ -1012,22 +1042,20 @@ elif page == "6. استوديو السيناريوهات":
             discount_delta = st.slider("تغير الخصومات — نقطة مئوية", -30, 30, 0)
             return_delta = st.slider("تغير المرتجعات — نقطة مئوية", -30, 30, 0)
         with c2:
-            collection_delta = st.slider("تحسن/تراجع التحصيل — نقطة مئوية", -50, 50, 0)
+            dso_delta = st.slider("تغير أيام التحصيل DSO", -60, 60, 0, help="السالب يعني تحصيل أسرع، والموجب يعني تحصيل أبطأ")
+            dpo_delta = st.slider("تغير أيام السداد DPO", -60, 60, 0, help="السالب يعني سداد أسرع للموردين، والموجب يعني تأخير السداد")
             opex_change = st.slider("تغير المصروفات %", -50, 50, 0)
-            cogs_change = st.slider("تغير تكلفة المبيعات %", -50, 50, 0)
         with c3:
+            cogs_change = st.slider("تغير تكلفة المبيعات %", -50, 50, 0)
             supplier_payment = st.number_input("دفعات موردين إضافية", value=0.0, step=1000.0)
             tax_payment = st.number_input("ضريبة/زكاة متوقعة", value=0.0, step=1000.0)
 
-        discount_rate = max(0, discount_delta)
-        return_rate = max(0, return_delta)
-        collection_rate = max(0, min(100, base_collection + collection_delta))
-
         res = run_simple_scenario(base, {
             "sales_growth_pct": sales_growth,
-            "discount_rate_pct": discount_rate,
-            "return_rate_pct": return_rate,
-            "collection_rate_pct": collection_rate,
+            "discount_change_pp": discount_delta,
+            "return_change_pp": return_delta,
+            "dso_days_delta": dso_delta,
+            "dpo_days_delta": dpo_delta,
             "opex_change_pct": opex_change,
             "cogs_change_pct": cogs_change,
             "supplier_payment": supplier_payment,

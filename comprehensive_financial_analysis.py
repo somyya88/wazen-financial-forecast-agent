@@ -6,6 +6,8 @@ from typing import Any
 
 import pandas as pd
 
+from financial_intelligence_v2 import build_metric_pack, build_cfo_intelligence
+
 MONTH_ORDER = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 AR_MONTHS = {"Jan":"يناير", "Feb":"فبراير", "Mar":"مارس", "Apr":"أبريل", "May":"مايو", "Jun":"يونيو", "Jul":"يوليو", "Aug":"أغسطس", "Sep":"سبتمبر", "Oct":"أكتوبر", "Nov":"نوفمبر", "Dec":"ديسمبر"}
 
@@ -196,7 +198,7 @@ def build_management_pnl_snapshot(pnl_model: dict, expense_model: dict | None = 
                 finance += amt
             elif cat in ["Bank Charges"]:
                 bank += amt
-            elif cat in ["Other Opex"]:
+            elif cat in ["Needs Review"]:
                 other += amt
             else:
                 admin += amt
@@ -225,7 +227,7 @@ def build_management_pnl_snapshot(pnl_model: dict, expense_model: dict | None = 
         ["مصاريف بيع وتسويق", selling, "مبيعات، تسويق، عمولات"],
         ["مصاريف إدارية وعمومية", admin, "إدارة، رواتب إدارية، إيجارات، خدمات عامة"],
         ["مصاريف بنكية وتمويلية", finance + bank, "تمويل، رسوم، بوابات دفع"],
-        ["مصاريف أخرى", other, "بنود تحتاج مراجعة أو إعادة تصنيف"],
+        ["بنود بحاجة مراجعة", other, "حسابات لم يعتمد لها تصنيف مالي نهائي؛ لا تعرض كبنود بحاجة مراجعة معتمدة"],
         ["صافي الربح", net_profit, "مرتبط بإجمالي قائمة الدخل بعد إعادة عرض التصنيف"],
     ], columns=["البند", "القيمة", "القراءة"])
 
@@ -519,7 +521,13 @@ def _safe_ratio_text(x: float | None) -> str:
     return f"{x:.2f}x"
 
 
-def build_comprehensive_financial_analysis(tb_model: dict | None, pnl_model: dict, expense_model: dict | None, revenue_model: dict | None, monthly_pnl_model: pd.DataFrame | None, liquidity_model: dict | None, profile: dict | None = None) -> dict:
+def build_comprehensive_financial_analysis(tb_model: dict | None, pnl_model: dict, expense_model: dict | None, revenue_model: dict | None, monthly_pnl_model: pd.DataFrame | None, liquidity_model: dict | None, profile: dict | None = None, breakeven_model: dict | None = None, use_ai_narrative: bool = False) -> dict:
+    """V12.5 comprehensive model.
+
+    Deterministic engines calculate financial statements and ratios.
+    The CFO Intelligence layer then produces diagnostic findings, financial health score,
+    professional ratio readings, and an optional AI-written executive narrative.
+    """
     profile = profile or {}
     management_pnl = build_management_pnl_snapshot(pnl_model, expense_model)
     ratio_pnl = dict(pnl_model or {})
@@ -530,22 +538,30 @@ def build_comprehensive_financial_analysis(tb_model: dict | None, pnl_model: dic
         "opex": management_pnl.get("opex", 0),
         "ebitda": management_pnl.get("revenue",0) - management_pnl.get("cogs",0) - management_pnl.get("opex",0),
         "net_profit": management_pnl.get("net_profit", 0),
+        "admin_opex": management_pnl.get("admin_opex", 0),
+        "selling_marketing": management_pnl.get("selling_marketing", 0),
+        "finance_bank": management_pnl.get("finance_bank", 0),
+        "other_opex": management_pnl.get("other_opex", 0),
     })
     balance = build_balance_sheet_reading(tb_model, liquidity_model)
-    ratio_scorecard = build_ratio_scorecard(ratio_pnl, balance, liquidity_model, sector=profile.get("sector", ""))
+    metric_pack = build_metric_pack(ratio_pnl, management_pnl, balance, liquidity_model, breakeven_model, profile)
+    cfo_intel = build_cfo_intelligence(metric_pack, profile, use_ai=use_ai_narrative)
     vertical_income = build_vertical_income_statement(ratio_pnl)
     horizontal_monthly = build_horizontal_monthly_analysis(monthly_pnl_model)
     data_reading = build_data_reading_summary(ratio_pnl, balance, liquidity_model)
-    cfo = build_cfo_reading({"pnl_model": ratio_pnl, "balance_sheet": balance}, profile)
     return {
         "available": True,
         "management_pnl": management_pnl,
         "balance_sheet": balance,
-        "ratios": ratio_scorecard.get("ratios", pd.DataFrame()),
+        "metric_pack": metric_pack,
+        "ratios": cfo_intel.get("ratios_enriched", pd.DataFrame()),
+        "financial_health_score": cfo_intel.get("financial_health_score", {}),
+        "diagnostic_findings": cfo_intel.get("diagnostic_findings", pd.DataFrame()),
         "vertical_income": vertical_income,
         "vertical_balance": balance.get("vertical", pd.DataFrame()),
         "horizontal_monthly": horizontal_monthly,
         "horizontal_balance": balance.get("horizontal", pd.DataFrame()),
         "data_reading": data_reading,
-        "cfo_reading": cfo,
+        "cfo_reading": cfo_intel.get("executive_summary", {}),
     }
+

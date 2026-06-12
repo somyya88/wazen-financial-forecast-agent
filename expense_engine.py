@@ -21,7 +21,7 @@ def classify_expense(account_name: str) -> str:
     for category, keys in CATEGORY_RULES.items():
         if any(normalize_text(k) in text for k in keys):
             return category
-    return "Other Opex"
+    return "Needs Review"
 
 def build_expense_model(file_record: dict, revenue_total: float | None = None) -> dict:
     df = file_record["primary_df"].copy()

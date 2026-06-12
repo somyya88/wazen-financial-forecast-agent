@@ -1,7 +1,7 @@
 from sector_benchmarks import evaluate_metric
 
 import pandas as pd
-AR_CATEGORY={"Cost of Revenue":"تكلفة الإيراد","Purchases":"المشتريات","Payroll":"الرواتب والأجور","Rent":"الإيجارات","Utilities":"الخدمات والمرافق","Maintenance":"الصيانة","Fuel":"الوقود والمحروقات","Spare Parts":"قطع الغيار","Depreciation":"الإهلاك","Finance Costs":"تكاليف التمويل","Bank Charges":"رسوم وعمولات بنكية","Selling & Marketing":"البيع والتسويق","Administrative Expenses":"مصاريف إدارية وعمومية","Other Opex":"مصاريف تشغيلية أخرى","Admin Opex":"مصاريف إدارية وعمومية","Marketing":"التسويق","Selling Opex":"مصاريف البيع","COGS":"تكلفة الإيراد"}
+AR_CATEGORY={"Cost of Revenue":"تكلفة الإيراد","Purchases":"المشتريات","Payroll":"الرواتب والأجور","Rent":"الإيجارات","Utilities":"الخدمات والمرافق","Maintenance":"الصيانة","Fuel":"الوقود والمحروقات","Spare Parts":"قطع الغيار","Depreciation":"الإهلاك","Finance Costs":"تكاليف التمويل","Bank Charges":"رسوم وعمولات بنكية","Selling & Marketing":"البيع والتسويق","Administrative Expenses":"مصاريف إدارية وعمومية","Needs Review":"بحاجة مراجعة", "Needs Review":"بحاجة مراجعة","Admin Opex":"مصاريف إدارية وعمومية","Marketing":"التسويق","Selling Opex":"مصاريف البيع","COGS":"تكلفة الإيراد"}
 def sf(x):
     try: return float(x)
     except Exception: return 0.0
@@ -35,7 +35,7 @@ def explain_break_even(breakeven_model, mapping_df=None):
             else: score+=10; reasons.append('معظم التصنيفات ذات ثقة مقبولة.')
         if 'user_category' in mapping_df.columns:
             other=mapping_df['user_category'].astype(str).str.contains('Other',case=False,na=False).mean()
-            if other>.25: score-=15; reasons.append('نسبة البنود المصنفة كمصاريف أخرى ما زالت مرتفعة.')
+            if other>.25: score-=15; reasons.append('نسبة البنود المصنفة كبنود بحاجة مراجعة ما زالت مرتفعة.')
             else: score+=5; reasons.append('نسبة المصاريف غير المحددة ضمن مستوى مقبول.')
     else:
         score-=20; reasons.append('لم يتم العثور على جدول تصنيف مصاريف معتمد.')
@@ -60,6 +60,6 @@ def build_expense_quality(expense_model, pnl_model):
         return {'summary':pd.DataFrame(),'diagnosis':'لا توجد بيانات كافية للمصاريف.','action':'رفع ملف مصاريف وتصنيف البنود.'}
     df=expense_model['by_category'].copy(); df['amount']=pd.to_numeric(df['amount'], errors='coerce').fillna(0); df['التصنيف']=df['category'].apply(ar_category); df['النسبة من الإيراد']=df['amount']/revenue if revenue else 0; df['التقييم']=df['النسبة من الإيراد'].apply(lambda x:'مرتفع' if x>.2 else ('متوسط' if x>.1 else 'مقبول')); df=df.rename(columns={'amount':'المبلغ'})
     max_row=df.sort_values('المبلغ',ascending=False).iloc[0]; other=df[df['التصنيف'].astype(str).str.contains('أخرى',na=False)]['المبلغ'].sum(); other_ratio=other/revenue if revenue else 0
-    if other_ratio>.1: diagnosis=f'يوجد بند مصاريف أخرى بقيمة {money(other)}، وهذا يقلل وضوح قرارات خفض التكاليف.'; action='تفصيل المصاريف الأخرى قبل أي قرار خفض أو إعادة تسعير.'
+    if other_ratio>.1: diagnosis=f'يوجد بند بنود بحاجة مراجعة بقيمة {money(other)}، وهذا يقلل وضوح قرارات خفض التكاليف.'; action='تفصيل المصاريف الأخرى قبل أي قرار خفض أو إعادة تسعير.'
     else: diagnosis=f'أكبر بند مصاريف هو {max_row["التصنيف"]} بقيمة {money(max_row["المبلغ"])}.'; action='مراجعة أكبر بندين وربطهما بالإيراد قبل اعتماد أي التزامات جديدة.'
     return {'summary':df[['التصنيف','المبلغ','النسبة من الإيراد','التقييم']],'diagnosis':diagnosis,'action':action}
