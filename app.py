@@ -354,7 +354,7 @@ def render_liquidity_decision_view(full_model: dict, liq_model: dict | None):
 def render_collection_turnover_view(full_model: dict, liq_model: dict | None):
     ratio_df = full_model.get("ratios", pd.DataFrame())
     st.markdown("#### مؤشرات التحصيل والدوران")
-    st.caption("يمكن احتساب DSO ودوران الذمم من ميزان المراجعة إذا ظهرت الذمم، بينما أعمار العملاء تضيف أسماء العملاء والأرصدة وأولوية التحصيل.")
+    st.caption("يُحتسب DSO فقط إذا ظهر رصيد عملاء مدين صالح. إذا كان حساب العملاء دائنًا أو غير واضح، فلا يظهر الرقم كأنه جيد؛ أعمار العملاء تعطي الأسماء والأولوية.")
     c1, c2, c3, c4 = st.columns(4)
     with c1: kpi_card("أيام التحصيل DSO", _ratio_result(ratio_df, "dso"), _ratio_status(ratio_df, "dso"))
     with c2: kpi_card("دوران الذمم", _ratio_result(ratio_df, "receivables_turnover"), _ratio_status(ratio_df, "receivables_turnover"))
@@ -384,6 +384,15 @@ def render_cost_structure_view(expense_model: dict | None, full_model: dict):
     if mgmt and isinstance(mgmt.get("management_table"), pd.DataFrame) and not mgmt.get("management_table").empty:
         with st.expander("قائمة الدخل الإدارية وهيكل التكلفة", expanded=True):
             st.dataframe(mgmt.get("management_table"), use_container_width=True, hide_index=True)
+    segment = full_model.get("segment_analysis", {}) or {}
+    if isinstance(segment.get("segment_table"), pd.DataFrame) and not segment.get("segment_table").empty:
+        st.markdown("#### مسارات النشاط المكتشفة من الحسابات")
+        st.caption("هذه القراءة عامة لكل القطاعات: تفصل المسارات أو المشاريع أو القنوات عندما تظهر في الحسابات، ولا تعتمد على ملف واحد أو اسم ثابت.")
+        st.dataframe(segment.get("segment_table"), use_container_width=True, hide_index=True)
+    warnings = (segment.get("warnings") or []) + ((full_model.get("balance_quality_flags", {}) or {}).get("flags", []) or [])
+    if warnings:
+        for w in warnings:
+            st.warning(w)
 
     if expense_model:
         notes = expense_model.get("notes") or []
@@ -669,7 +678,7 @@ def build_models_from_session(revenue_definition: str | None = None):
     if expense_record:
         expense_model = build_expense_model(expense_record, preliminary_revenue_total)
     elif tb_model:
-        expense_model = build_expense_model_from_trial_balance(tb_model, preliminary_revenue_total)
+        expense_model = build_expense_model_from_trial_balance(tb_model, preliminary_revenue_total, sector_context=str(refresh_business_profile()))
     else:
         expense_model = None
 
@@ -753,7 +762,7 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.8</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V13.0</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
@@ -773,7 +782,7 @@ with st.sidebar:
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
     st.checkbox("تفعيل صياغة AI للملخص التنفيذي إذا كان المفتاح متاحًا", key="ai_narrative_enabled", value=st.session_state.get("ai_narrative_enabled", False))
-    st.caption("V12.8: Sector-aware Metric Guard + Decision UX")
+    st.caption("V13.0: Sector-aware Metric Guard + Decision UX")
 
 
 # -----------------------------------------------------------------------------
@@ -1079,43 +1088,58 @@ elif page == "4. التشخيص التنفيذي":
                     st.dataframe(pd.DataFrame([{"السؤال": k, "الإجابة": v} for k, v in questions.items()]), use_container_width=True, hide_index=True)
 
         st.markdown("### الإجابات التي تهم صاحب العمل")
+        metric_pack = full_model.get("metric_pack", {}) if full_model else {}
+        fm = metric_pack.get("metrics", {}) if metric_pack else {}
+        findings_df = full_model.get("diagnostic_findings", pd.DataFrame()) if full_model else pd.DataFrame()
+        net_profit_v = (full_model.get("management_pnl", {}) or {}).get("net_profit", exec_kpis.get("net_profit", 0))
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            kpi_card("هل الشركة تربح؟", "نعم" if exec_kpis.get("net_profit", 0) > 0 else "لا", f"صافي الربح {exec_kpis.get('net_profit',0):,.0f}")
+            label_profit = "نعم" if net_profit_v > 0 else "لا"
+            np_caption = f"صافي ربح {net_profit_v:,.0f}" if net_profit_v > 0 else f"صافي خسارة {abs(net_profit_v):,.0f}"
+            kpi_card("هل الشركة تربح؟", label_profit, np_caption)
         with c2:
-            kpi_card("هل الربح يتحول إلى نقد؟", liq_diag["risk"], liq_diag["problem"])
+            runway = fm.get("runway")
+            dso = fm.get("dso")
+            cash_answer = "غير محسوم" if runway is None and dso is None else ("يحتاج متابعة" if (runway is None or runway < 2) else "مقبول")
+            kpi_card("هل الربح يتحول إلى نقد؟", cash_answer, "لا نحكم من الميزان وحده إذا غاب تقرير السيولة/أعمار العملاء")
         with c3:
-            kpi_card("أكبر منطقة خطر", liq_diag["risk"] if liq_model.get("available") else "غير مكتملة", liquidity_files_summary(st.session_state.files) if has_liquidity_files(st.session_state.files) else "نحتاج سيولة/ذمم")
+            if isinstance(findings_df, pd.DataFrame) and not findings_df.empty:
+                top_risk = str(findings_df.iloc[0].get("المجال", "خطر"))
+                top_detail = str(findings_df.iloc[0].get("الدليل", ""))
+            else:
+                top_risk, top_detail = "غير مكتملة", "لا توجد نتائج كافية"
+            kpi_card("أكبر منطقة خطر", top_risk, top_detail)
         with c4:
-            kpi_card("مؤشر الأداء", f"{min(float(perf.get('score',0) or 0),85):.0f}/100", "مؤشر ربحية وتشغيل أولي")
+            kpi_card("مؤشر الأداء", f"{health.get('score',0):.0f}/100" if health else "—", health.get("label", "حسب النموذج العميق") if health else "")
 
-        st.markdown(
-            f"""
-            <div class="executive-diagnosis">
-                <h3>تشخيص CFO</h3>
-                <p><strong>الوضع:</strong> {diag.get('situation','')}</p>
-                <p><strong>السيولة والتحصيل:</strong> {liq_diag['problem']}.</p>
-                <p><strong>الإجراء الآن:</strong> {liq_diag['action'] if liq_model.get('available') else diag.get('action','')}</p>
-                <p><strong>مؤشر المتابعة:</strong> {liq_diag['monitor']}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        warnings = []
+        warnings += (health.get("caps", []) if isinstance(health, dict) else [])
+        warnings += ((full_model.get("segment_analysis", {}) or {}).get("warnings", []) if full_model else [])
+        warnings += ((full_model.get("balance_quality_flags", {}) or {}).get("flags", []) if full_model else [])
+        if warnings:
+            st.markdown("#### تنبيهات لا يجوز تجاهلها")
+            for w in warnings:
+                st.warning(w)
 
         st.markdown("#### بطاقات مختصرة")
+        mg = full_model.get("management_pnl", {}) if full_model else {}
+        fm = (full_model.get("metric_pack", {}) or {}).get("metrics", {}) if full_model else {}
+        bm = ((full_model.get("balance_sheet", {}) or {}).get("metrics", {}) or {}) if full_model else {}
+        rq = full_model.get("revenue_quality_tb", {}) if full_model else {}
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            kpi_card("صافي الإيرادات", f"{exec_kpis.get('operating_revenue',0):,.0f}", "إيراد النشاط")
+            kpi_card("صافي الإيرادات", f"{mg.get('revenue',0):,.0f}", "صافي المبيعات + إيرادات أخرى")
         with c2:
-            kpi_card("صافي الربح", f"{exec_kpis.get('net_profit',0):,.0f}", f"هامش {exec_kpis.get('net_margin',0)*100:.1f}%")
+            npv = mg.get('net_profit',0)
+            kpi_card("صافي النتيجة", f"{npv:,.0f}", "ربح" if npv > 0 else "خسارة")
         with c3:
-            kpi_card("هامش الأمان", f"{breakeven_model.get('margin_of_safety',0)*100:.1f}%", "قبل نقطة التعادل")
+            lr = rq.get("leakage_ratio")
+            kpi_card("تآكل الإيراد", "—" if lr is None else f"{lr*100:.1f}%", "خصومات + مردودات")
         with c4:
-            cash_cards = (liq_model.get("cash") or {}).get("cards", {})
-            kpi_card("النقد", f"{cash_cards.get('ending_cash',0):,.0f}", "من تقرير السيولة إن توفر")
+            kpi_card("النقد", f"{bm.get('cash',0):,.0f}", "من ميزان المراجعة")
         with c5:
-            runway = cash_cards.get("cash_runway_months")
-            kpi_card("فترة التغطية النقدية", "—" if runway is None else f"{runway:.1f} شهر", "مبدئي قبل تنظيف التحويلات")
+            runway = fm.get("runway")
+            kpi_card("فترة التغطية النقدية", "غير محسوبة" if runway is None else f"{runway:.1f} شهر", "تحتاج تقرير سيولة")
 
 
 # -----------------------------------------------------------------------------
@@ -1170,7 +1194,18 @@ elif page == "5. مساحة التحليل":
 
         with tabs[3]:
             st.subheader("جودة الإيراد")
-            if revenue_model and not revenue_model.get("monthly_revenue", pd.DataFrame()).empty:
+            rq_tb = full_model.get("revenue_quality_tb", {}) or {}
+            if rq_tb.get("available"):
+                cards = rq_tb.get("cards", {}) or {}
+                c1,c2,c3,c4 = st.columns(4)
+                with c1: kpi_card("إجمالي المبيعات", f"{cards.get('gross_sales',0):,.0f}", "قبل الخصومات والمردودات")
+                with c2: kpi_card("الخصومات", f"{rq_tb.get('discounts',0):,.0f}", "تآكل قبل الصافي")
+                with c3: kpi_card("المردودات", f"{rq_tb.get('returns',0):,.0f}", "تآكل قبل الصافي")
+                lr = rq_tb.get("leakage_ratio")
+                with c4: kpi_card("تآكل الإيراد", "—" if lr is None else f"{lr*100:.1f}%", "خصومات + مردودات")
+                render_insight_panel("قراءة جودة الإيراد من ميزان المراجعة", rq_tb.get("narrative", ""), "خطر" if (lr or 0) >= .20 else "متابعة", "افصل الخصومات والمردودات حسب نوع البيع والعميل والباقة قبل الحكم على نمو الإيراد.", ["ميزان المراجعة يكفي هنا لأنه يحتوي إجمالي المبيعات والخصومات والمردودات.", "ملف المبيعات التفصيلي يضيف تحليل العميل/الصنف/الشهر ولا يوقف القراءة الأساسية."])
+                st.dataframe(rq_tb.get("table", pd.DataFrame()), use_container_width=True, hide_index=True)
+            elif revenue_model and not revenue_model.get("monthly_revenue", pd.DataFrame()).empty:
                 rev_monthly = revenue_model["monthly_revenue"].copy()
                 rev_monthly["revenue"] = pd.to_numeric(rev_monthly["revenue"], errors="coerce").fillna(0)
                 rev_quality = build_revenue_quality(rev_monthly)
@@ -1179,11 +1214,8 @@ elif page == "5. مساحة التحليل":
                 with c2: kpi_card("متوسط شهري", f"{rev_quality['cards'].get('avg',0):,.0f}", "متوسط محافظ")
                 with c3: kpi_card("أعلى شهر", str(rev_quality['cards'].get('best_month','—')), f"{rev_quality['cards'].get('max_share',0)*100:.1f}%")
                 with c4: kpi_card("انتظام الإيراد", f"{rev_quality['cards'].get('stability_score',0):.0f}/100", "مؤشر يختبر التذبذب وتركيز أعلى شهر")
-                render_insight_panel("قراءة مالية للإيراد", rev_quality["narrative"], rev_quality["risk"], rev_quality["action"], ["انتظام الإيراد يعني: هل الإيراد متوازن عبر الأشهر أم معتمد على شهر أو عقد استثنائي؟", "لا نكتفي بالمبيعات الإجمالية؛ المرحلة التالية ستقرأ الإجمالي والخصومات والمرتجعات والصافي عند توفر ملف تفصيلي."])
-                st.markdown("#### تفسير مؤشرات جودة الإيراد")
-                st.dataframe(rev_quality.get("quality_table", pd.DataFrame()), use_container_width=True, hide_index=True)
+                render_insight_panel("قراءة مالية للإيراد", rev_quality["narrative"], rev_quality["risk"], rev_quality["action"], ["انتظام الإيراد يعني: هل الإيراد متوازن عبر الأشهر أم معتمد على شهر أو عقد استثنائي؟"])
                 line_chart(rev_monthly, "month", "revenue", "اتجاه الإيرادات")
-                st.dataframe(rev_quality.get("monthly_table", rev_monthly), use_container_width=True, hide_index=True)
             else:
                 st.info("لا توجد بيانات إيرادات كافية.")
 

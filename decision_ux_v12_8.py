@@ -72,6 +72,7 @@ def render_cfo_command_center(full_model: dict, guarded_df: pd.DataFrame | None 
     summary = metric_guard_summary(guarded_df) if guarded_df is not None else {}
     headline = reading.get("headline", "تم بناء نموذج مالي؛ ابدأ من الهامش والسيولة والتحصيل.")
     action = reading.get("action", "راجع أعلى فجوة مالية وحدد إجراء خلال 30 يوم.")
+    caps = health.get("caps", []) or []
     st.markdown(f"""
     <div class="v128-command-center">
         <div class="v128-eyebrow">CFO Command Center</div>
@@ -85,6 +86,12 @@ def render_cfo_command_center(full_model: dict, guarded_df: pd.DataFrame | None 
         <p class="v128-next-action"><strong>الإجراء التالي:</strong> {action}</p>
     </div>
     """, unsafe_allow_html=True)
+    for cap in caps:
+        st.warning(cap)
+    for w in (full_model.get("segment_analysis", {}) or {}).get("warnings", []) or []:
+        st.warning(w)
+    for w in (full_model.get("balance_quality_flags", {}) or {}).get("flags", []) or []:
+        st.warning(w)
 
 
 def render_metric_catalog_reference():

@@ -37,6 +37,7 @@ def build_metric_guard_report(ratio_df: pd.DataFrame, metric_pack: dict | None, 
     full_model = full_model or {}
     balance = full_model.get("balance_sheet", {}) or {}
     balance_metrics = balance.get("metrics", {}) or {}
+    ar_quality = str(balance_metrics.get("ar_quality", ""))
 
     evidence = {
         "has_inventory": bool(_num_or_none(balance_metrics.get("inventory")) and abs(_num_or_none(balance_metrics.get("inventory")) or 0) > 1e-9),
@@ -49,6 +50,7 @@ def build_metric_guard_report(ratio_df: pd.DataFrame, metric_pack: dict | None, 
     }
 
     source_map = {
+        "revenue_leakage_ratio": "ميزان المراجعة / Gross Sales + Returns + Discounts",
         "gross_margin": "ميزان المراجعة / قائمة الدخل",
         "cogs_ratio": "ميزان المراجعة بعد التصنيف",
         "operating_margin": "ميزان المراجعة / قائمة الدخل",
@@ -92,6 +94,11 @@ def build_metric_guard_report(ratio_df: pd.DataFrame, metric_pack: dict | None, 
             confidence = "غير مطبق"
             display_rule = "إخفاء من الملخص"
             note = app.get("reason")
+        elif code in ["dso", "receivables_turnover"] and ar_quality in ["credit_balance", "missing"]:
+            state = "غير قابل للحساب"
+            confidence = "منخفضة"
+            display_rule = "يعرض كفجوة بيانات لا كرقم"
+            note = "حساب العملاء في الميزان ليس رصيدًا مدينًا صالحًا للتحصيل؛ لا يجوز حساب DSO قبل رفع تقرير العملاء أو أعمار الديون."
         elif numeric is None or result_txt in ["غير متاح", "غير محسوب", "nan", "None", ""]:
             state = "غير قابل للحساب"
             confidence = "منخفضة"

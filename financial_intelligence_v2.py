@@ -120,6 +120,12 @@ def _status(metric: str, value: float | None, sector: str = "general") -> tuple[
         if value >= 0: return "ضعيف", "صافي الربح ضعيف ولا يعطي هامش أمان كافٍ."
         return "خطر", "الشركة خاسرة خلال الفترة."
 
+    if metric == "revenue_leakage_ratio":
+        if value <= 0.08: return "جيد", "الخصومات والمردودات ضمن مستوى منخفض مبدئيًا."
+        if value <= 0.15: return "متوسط", "تآكل الإيراد يحتاج متابعة وربطه بسياسة الخصومات والمرتجعات."
+        if value <= 0.25: return "خطر", "تآكل الإيراد مرتفع ويضغط صافي المبيعات قبل حساب التكلفة."
+        return "خطر", "تآكل الإيراد حاد جدًا؛ المبيعات المسجلة لا تعكس جودة الإيراد الفعلية."
+
     if metric in ["admin_ratio", "sm_ratio", "opex_ratio", "cogs_ratio"]:
         # For cost ratios, lower is generally better but sector context matters.
         if metric == "admin_ratio":
@@ -197,7 +203,7 @@ def _status(metric: str, value: float | None, sector: str = "general") -> tuple[
 
 
 def _fmt(metric: str, value: float | None) -> str:
-    if metric in ["gross_margin", "operating_margin", "ebitda_margin", "net_margin", "admin_ratio", "sm_ratio", "opex_ratio", "cogs_ratio", "debt_ratio", "roa", "roe", "margin_of_safety", "ocf_net_income"]:
+    if metric in ["gross_margin", "operating_margin", "ebitda_margin", "net_margin", "admin_ratio", "sm_ratio", "opex_ratio", "cogs_ratio", "revenue_leakage_ratio", "debt_ratio", "roa", "roe", "margin_of_safety", "ocf_net_income"]:
         return _pct(value)
     if metric in ["current_ratio", "quick_ratio", "cash_ratio", "debt_to_equity", "asset_turnover", "fixed_asset_turnover", "receivables_turnover", "payables_turnover", "inventory_turnover"]:
         return _ratio(value)
@@ -234,7 +240,12 @@ def build_metric_pack(pnl_model: dict, management_pnl: dict, balance_model: dict
     current_assets = _num(b.get("current_assets"))
     current_liabilities = _num(b.get("current_liabilities"))
     cash = _num(b.get("cash")) or _num(cash_cards.get("ending_cash"))
-    ar = _num(b.get("ar")) or _num(ar_cards.get("total_balance"))
+    # Do not treat a credit-balance or unclear customer account as valid AR.
+    ar_quality = str(b.get("ar_quality", ""))
+    if ar_quality in ["credit_balance", "missing"] and not ar_cards.get("total_balance"):
+        ar = 0.0
+    else:
+        ar = _num(b.get("ar")) or _num(ar_cards.get("total_balance"))
     ap = _num(b.get("ap")) or _num(ap_cards.get("total_balance"))
     inventory = _num(b.get("inventory"))
     total_assets = _num(b.get("total_assets"))
@@ -267,6 +278,7 @@ def build_metric_pack(pnl_model: dict, management_pnl: dict, balance_model: dict
 
     metrics = {
         "revenue": revenue,
+        "revenue_leakage_ratio": pnl_model.get("revenue_leakage_ratio"),
         "gross_margin": _safe_div(gross_profit, revenue),
         "cogs_ratio": _safe_div(cogs, revenue),
         "operating_margin": _safe_div(operating_profit, revenue),
@@ -281,9 +293,9 @@ def build_metric_pack(pnl_model: dict, management_pnl: dict, balance_model: dict
         "working_capital": working_capital,
         "runway": runway,
         "dso": dso,
-        "receivables_turnover": _safe_div(revenue, ar),
+        "receivables_turnover": _safe_div(revenue, ar) if dso is not None else None,
         "dpo": dpo,
-        "payables_turnover": _safe_div(cogs, ap),
+        "payables_turnover": _safe_div(cogs, ap) if dpo is not None else None,
         "dio": dio,
         "inventory_turnover": _safe_div(cogs, inventory),
         "ccc": ccc,
@@ -296,9 +308,11 @@ def build_metric_pack(pnl_model: dict, management_pnl: dict, balance_model: dict
         "ocf_net_income": ocf_proxy,
         "break_even_sales": _num(breakeven_model.get("break_even_sales")) or None,
         "margin_of_safety": breakeven_model.get("margin_of_safety"),
+        "classification_confidence": management_pnl.get("classification_confidence"),
     }
 
     definitions = [
+        ("جودة الإيراد", "تآكل الإيراد من الخصومات والمردودات", "revenue_leakage_ratio", "الخصومات والمردودات ÷ إجمالي المبيعات", "كم من المبيعات المسجلة لا يصل إلى صافي الإيراد؟"),
         ("الربحية", "هامش مجمل الربح", "gross_margin", "مجمل الربح ÷ صافي الإيرادات", "هل العمل الأساسي يترك هامشًا قبل الإدارة والتسويق؟"),
         ("الربحية", "نسبة تكلفة الإيراد", "cogs_ratio", "تكلفة الإيراد ÷ صافي الإيرادات", "كم تستهلك تكلفة تقديم الخدمة أو المنتج من كل ريال مبيعات؟"),
         ("الربحية", "هامش الربح التشغيلي", "operating_margin", "الربح التشغيلي ÷ صافي الإيرادات", "هل التشغيل مربح بعد تكلفة الإيراد والمصاريف الإدارية والتسويقية؟"),
@@ -393,12 +407,16 @@ def build_diagnostic_findings(metric_pack: dict, profile: dict | None = None) ->
     nm = m.get("net_margin")
     admin = m.get("admin_ratio")
     sm = m.get("sm_ratio")
+    leakage = m.get("revenue_leakage_ratio")
     dso = m.get("dso")
     runway = m.get("runway")
     cr = m.get("current_ratio")
     cashr = m.get("cash_ratio")
     ccc = m.get("ccc")
     ocf = m.get("ocf_net_income")
+
+    if leakage is not None and leakage >= 0.15:
+        add("جودة الإيراد", "الخصومات والمردودات تستهلك جزءًا جوهريًا من المبيعات قبل الوصول إلى صافي الإيراد.", f"Revenue Leakage {_pct(leakage)}", "خطر" if leakage >= 0.20 else "متوسط", "خصومات مرتفعة أو مردودات أو تسويات بيع قد تجعل رقم المبيعات الخام مضللًا.", "كل ريال مبيعات مفقود قبل الصافي يقلل الهامش ويخفي ضعف التسعير أو جودة العملاء.", "افتح تحليل الخصومات والمردودات حسب نوع البيع/العميل/الباقة، ولا تبدأ بخفض عام للمصاريف قبل فهم تآكل الإيراد.", "Revenue Leakage %", 98 if leakage >= 0.20 else 78)
 
     if gm is not None:
         st, _ = _status("gross_margin", gm, sector)
@@ -462,7 +480,13 @@ def build_ratio_narratives(metric_pack: dict, findings: pd.DataFrame | None = No
         action = "راقب المؤشر شهريًا، وقارنه بالفترة السابقة وبمعيار القطاع عند توفره."
         monitor = name
 
-        if key == "gross_margin":
+        if key == "revenue_leakage_ratio":
+            meaning = f"تآكل الإيراد {result} يوضح مقدار المبيعات التي ضاعت عبر الخصومات والمردودات قبل الوصول إلى صافي الإيراد."
+            cause = "ارتفاعه يعني أن رقم المبيعات الخام لا يكفي للحكم على جودة النمو؛ قد توجد سياسة خصومات واسعة أو مردودات أو تسويات تقلل القيمة الفعلية للبيع."
+            impact = "كل ارتفاع في هذه النسبة يضغط الهامش حتى لو بدت المبيعات كبيرة."
+            action = "افصل الخصومات والمردودات حسب نوع البيع والعميل والقطاع، وراجع الصلاحيات التجارية قبل زيادة الإنفاق التسويقي."
+            monitor = "Revenue Leakage % وNet Sales"
+        elif key == "gross_margin":
             meaning = f"هامش مجمل الربح {result} يوضح هل النشاط الأساسي يترك هامشًا كافيًا قبل المصاريف الإدارية والتسويقية."
             if sector == "saas":
                 cause = "في نشاط SaaS يجب التأكد أن رواتب التشغيل والدعم والتنفيذ والاستضافة مصنفة ضمن تكلفة الإيراد عند ارتباطها بتقديم الخدمة؛ وإلا سيظهر الهامش أعلى من حقيقته."
@@ -535,6 +559,7 @@ def build_health_score(metric_pack: dict) -> dict:
     axes = sector_profile.get("health_weights", {}) or {"profitability": 25, "liquidity": 20, "working_capital": 20, "solvency": 15, "cash_quality": 20}
 
     metric_axes = {
+        "revenue_leakage_ratio": "profitability",
         "gross_margin": "profitability",
         "operating_margin": "profitability",
         "net_margin": "profitability",
@@ -587,12 +612,21 @@ def build_health_score(metric_pack: dict) -> dict:
     df = pd.DataFrame(rows)
     coverage = round((scored_weight / potential_weight * 100), 0) if potential_weight else 0
     score = round((scored_points / scored_weight * 100), 1) if scored_weight else 0.0
+    caps = []
+    if (m.get("operating_margin") is not None and m.get("operating_margin") < 0) and (m.get("net_margin") is not None and m.get("net_margin") < 0):
+        score = min(score, 55.0)
+        caps.append("تم سقف التقييم لأن هامش التشغيل وصافي الربح سلبيان؛ السيولة وحدها لا تكفي لاعتبار الشركة جيدة.")
+    if m.get("revenue_leakage_ratio") is not None and m.get("revenue_leakage_ratio") >= 0.20:
+        score = min(score, 62.0)
+        caps.append("تم سقف التقييم بسبب تآكل إيراد مرتفع من الخصومات والمردودات.")
+
     if score >= 85: label = "ممتاز"
     elif score >= 70: label = "جيد"
     elif score >= 55: label = "يحتاج متابعة"
     elif score >= 40: label = "مرتفع المخاطر"
     else: label = "خطر حرج"
 
+    classification_conf = str(m.get("classification_confidence") or "")
     if coverage >= 80:
         confidence = "مرتفعة"
     elif coverage >= 55:
@@ -601,8 +635,10 @@ def build_health_score(metric_pack: dict) -> dict:
         confidence = "منخفضة"
     else:
         confidence = "غير متاحة"
+    if classification_conf and classification_conf != "مرتفعة" and confidence == "مرتفعة":
+        confidence = "متوسطة - ثقة التصنيف تحتاج مراجعة"
 
-    return {"score": score, "label": label, "coverage": coverage, "confidence": confidence, "components": df}
+    return {"score": score, "label": label, "coverage": coverage, "confidence": confidence, "components": df, "caps": caps}
 
 def build_executive_summary(metric_pack: dict, findings: pd.DataFrame, health: dict, profile: dict | None = None, use_ai: bool = False) -> dict:
     m = metric_pack.get("metrics", {})
@@ -614,6 +650,7 @@ def build_executive_summary(metric_pack: dict, findings: pd.DataFrame, health: d
     nm = m.get("net_margin")
     admin = m.get("admin_ratio")
     sm = m.get("sm_ratio")
+    leakage = m.get("revenue_leakage_ratio")
     dso = m.get("dso")
     runway = m.get("runway")
     ccc = m.get("ccc")
@@ -627,18 +664,22 @@ def build_executive_summary(metric_pack: dict, findings: pd.DataFrame, health: d
     headline = f"الصحة المالية الحالية: {health.get('score',0):.0f}/100 — {health.get('label','غير مصنف')}."
 
     profit_model = (
-        f"هامش الربح الإجمالي {_pct(gm)} وهامش الربح التشغيلي {_pct(om)}. "
-        f"هذه القراءة تفصل بين اقتصاد العمل الأساسي وبين أثر المصاريف الإدارية والتسويقية. "
-        f"إذا كان الهامش الإجمالي ضعيفًا فالمشكلة تبدأ من التسعير أو تكلفة تقديم الخدمة؛ أما إذا كان الهامش الإجمالي مقبولًا وهامش التشغيل ضعيفًا فالمشكلة غالبًا بعد التشغيل المباشر، في الإدارة أو التسويق أو بنية التكاليف."
+        f"هامش الربح الإجمالي {_pct(gm)} وهامش الربح التشغيلي {_pct(om)} وصافي الهامش {_pct(nm)}. "
+        f"تآكل الإيراد من الخصومات والمردودات {_pct(leakage)}. "
+        f"هذه القراءة تفصل بين جودة الإيراد، اقتصاد العمل الأساسي، وأثر المصاريف الإدارية والتسويقية. "
+        f"إذا كان الهامش الإجمالي مقبولًا لكن هامش التشغيل وصافي الربح سلبيين فالمشكلة ليست في المبيعات الخام وحدها، بل في تآكل الإيراد أو تكلفة تقديم الخدمة أو تضخم الإدارة والبيع والتسويق."
     )
     expense_line = (
         f"المصاريف الإدارية تمثل {_pct(admin)} من الإيراد، ومصاريف البيع والتسويق تمثل {_pct(sm)}. "
         "هذه النسب يجب قراءتها مع نمو الإيراد: إذا كانت المصاريف تنمو أسرع من المبيعات فالخطر ليس في رقم المصروف فقط، بل في تضخم الهيكل قبل نضج الإيراد."
     )
-    liquidity_line = (
-        f"من ناحية السيولة، Cash Runway يساوي {_months(runway)}، وDSO يساوي {_days(dso)}، وCCC يساوي {_days(ccc)}. "
-        "الحكم على السيولة لا يعتمد على النقد وحده؛ بل على سرعة تحصيل العملاء وشروط الموردين وحجم رأس المال العامل المحبوس داخل التشغيل."
-    )
+    if runway is None and dso is None:
+        liquidity_line = "من ناحية السيولة، نسب السيولة المحاسبية يمكن قراءتها من الميزان، لكن جودة التحول إلى نقد وDSO لا يحسمان دون تقرير سيولة أو أعمار عملاء صحيحة. لا يجوز اعتبار غياب المؤشر صفرًا أو جيدًا."
+    else:
+        liquidity_line = (
+            f"من ناحية السيولة، Cash Runway يساوي {_months(runway)}، وDSO يساوي {_days(dso)}، وCCC يساوي {_days(ccc)}. "
+            "الحكم على السيولة لا يعتمد على النقد وحده؛ بل على سرعة تحصيل العملاء وشروط الموردين وحجم رأس المال العامل المحبوس داخل التشغيل."
+        )
     data_line = "درجة الثقة أعلى عند توفر ميزان مراجعة، تقرير سيولة، أعمار عملاء وموردين، ومبيعات تفصيلية. "
     if not dq.get("cash_available"):
         data_line += "تقرير السيولة غير متاح أو غير مكتمل، لذلك قراءة النقد يجب أن تبقى محافظة. "

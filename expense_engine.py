@@ -1,5 +1,9 @@
 import pandas as pd
 from utils import detect_month_columns, to_number, month_label, find_column, normalize_text
+try:
+    from expense_classifier import classify_account_rule_based
+except Exception:
+    classify_account_rule_based = None
 
 CATEGORY_RULES = {
     "Payroll": ["راتب", "رواتب", "اجور", "أجور", "salary", "payroll", "wage"],
@@ -129,7 +133,7 @@ def _transaction_expenses(df: pd.DataFrame, revenue_total: float | None) -> dict
     }
 
 
-def build_expense_model_from_trial_balance(tb_model: dict | None, revenue_total: float | None = None) -> dict:
+def build_expense_model_from_trial_balance(tb_model: dict | None, revenue_total: float | None = None, sector_context: str = "") -> dict:
     """Build an expense model directly from Trial Balance.
 
     This is important for Level A analysis: a Trial Balance alone contains expense
@@ -177,11 +181,18 @@ def build_expense_model_from_trial_balance(tb_model: dict | None, revenue_total:
     leaf = tb[~tb["account_code_norm"].astype(str).apply(is_parent)].copy()
     names = leaf["account_name"].astype(str).apply(normalize_text)
     codes = leaf["account_code_norm"].astype(str)
-    expense_mask = codes.str.startswith("5", na=False) | names.str.contains(
-        "مصروف|مصاريف|راتب|رواتب|اجور|أجور|ايجار|إيجار|بدل|عموله|عمولات|تسويق|دعايه|اعلان|اتعاب|رسوم|اشتراك|صيانة|صيانه|تنقل|سفر|ضيافه|نظافه|بوابة الدفع|بنكي|فوائد|زكاة|ضريبة",
-        regex=True,
-        na=False,
-    )
+    # If account codes exist, P&L expense accounts should come from class 5 only.
+    # Do NOT pull accrued liabilities from class 2 just because their names contain commission/payroll/expense.
+    # That was causing negative Selling & Marketing and duplicated expense readings.
+    has_code_structure = codes.str.len().gt(0).any()
+    if has_code_structure:
+        expense_mask = codes.str.startswith("5", na=False)
+    else:
+        expense_mask = names.str.contains(
+            "مصروف|مصاريف|راتب|رواتب|اجور|أجور|ايجار|إيجار|بدل|عموله|عمولات|تسويق|دعايه|اعلان|اتعاب|رسوم|اشتراك|صيانة|صيانه|تنقل|سفر|ضيافه|نظافه|بوابة الدفع|بنكي|فوائد|زكاة|ضريبة",
+            regex=True,
+            na=False,
+        )
     exp = leaf[expense_mask].copy()
 
     if exp.empty:
@@ -209,7 +220,26 @@ def build_expense_model_from_trial_balance(tb_model: dict | None, revenue_total:
     exp["amount"] = exp["amount"].astype(float)
     exp["account_code"] = exp["account_code_norm"].astype(str)
     exp["account_name"] = exp["account_name"].astype(str)
-    exp["category"] = exp["account_name"].apply(classify_expense)
+    def _smart_category(row):
+        name = row.get("account_name", "")
+        code = str(row.get("account_code", ""))
+        # Hard rules from the observed TB hierarchy: 50101 = delivery/operations, 50102 = G&A, 50103 = S&M, 502 = third-sector/direct pass-through cost.
+        if code.startswith("502"):
+            return "Cost of Revenue"
+        if code.startswith("50101"):
+            return "Cost of Revenue"
+        if code.startswith("50103"):
+            return "Selling & Marketing"
+        if code.startswith("50102019") or code.startswith("50102020"):
+            return "Bank Charges"
+        if code.startswith("50102"):
+            return "Administrative Expenses"
+        if classify_account_rule_based is not None:
+            cat, behavior, conf, reason, method = classify_account_rule_based(name, row.get("amount", 0), sector_context=sector_context)
+            return cat
+        return classify_expense(name)
+
+    exp["category"] = exp.apply(_smart_category, axis=1)
     exp["month"] = "Total"
 
     long_df = exp[["account_code", "account_name", "category", "month", "amount"]].copy()

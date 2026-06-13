@@ -7,6 +7,12 @@ from typing import Any
 import pandas as pd
 
 from financial_intelligence_v2 import build_metric_pack, build_cfo_intelligence
+from tb_cfo_diagnostic_v12_9 import (
+    build_segment_pnl_from_tb,
+    build_revenue_quality_from_tb,
+    build_balance_quality_flags,
+    infer_activity_profile,
+)
 
 MONTH_ORDER = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 AR_MONTHS = {"Jan":"يناير", "Feb":"فبراير", "Mar":"مارس", "Apr":"أبريل", "May":"مايو", "Jun":"يونيو", "Jul":"يوليو", "Aug":"أغسطس", "Sep":"سبتمبر", "Oct":"أكتوبر", "Nov":"نوفمبر", "Dec":"ديسمبر"}
@@ -172,12 +178,38 @@ def _ap_cards(liquidity_model: dict | None) -> dict:
 
 
 
-def build_management_pnl_snapshot(pnl_model: dict, expense_model: dict | None = None) -> dict:
+def build_management_pnl_snapshot(pnl_model: dict, expense_model: dict | None = None, tb_model: dict | None = None, profile: dict | None = None) -> dict:
     """
     Reclassifies the official P&L into a management view.
     Net profit remains tied to the official numbers, but gross margin becomes meaningful by moving
     direct delivery/operations costs to Cost of Revenue when expense mapping says so.
     """
+    # V12.9: If a Trial Balance is available, build a management P&L directly from its account hierarchy.
+    # This prevents a false Gross Margin when delivery/support/third-sector costs sit in expense accounts.
+    tb_deep = build_segment_pnl_from_tb(tb_model, profile) if tb_model else {"available": False}
+    if tb_deep.get("available"):
+        m = tb_deep.get("metrics", {}) or {}
+        mgmt_table = tb_deep.get("table", pd.DataFrame())
+        return {
+            "revenue": _num(m.get("revenue")),
+            "official_cogs": _num(m.get("purchases")),
+            "direct_reclassified": _num(m.get("core_direct_ops")) + _num(m.get("third_cost")),
+            "cogs": _num(m.get("cost_of_revenue")),
+            "gross_profit": _num(m.get("gross_profit")),
+            "opex": _num(m.get("admin")) + _num(m.get("selling_marketing")),
+            "selling_marketing": _num(m.get("selling_marketing")),
+            "admin_opex": _num(m.get("admin")),
+            "finance_bank": _num(m.get("bank_finance_inside_admin")),
+            "other_opex": 0.0,
+            "net_profit": _num(m.get("official_net_profit")),
+            "management_table": mgmt_table,
+            "segment_table": tb_deep.get("segment_table", pd.DataFrame()),
+            "stream_detector": tb_deep.get("stream_detector", {}),
+            "revenue_quality": tb_deep.get("revenue_quality", {}),
+            "warnings": tb_deep.get("warnings", []),
+            "source_note": "V13.0 TB-first dynamic management P&L: يكتشف مسارات النشاط والتكلفة حسب الحسابات والقطاع، ولا يعتمد على نمط ملف واحد.",
+        }
+
     revenue = _num(pnl_model.get("revenue"))
     official_cogs = _num(pnl_model.get("cogs"))
     official_opex = _num(pnl_model.get("opex"))
@@ -257,7 +289,29 @@ def build_balance_sheet_reading(tb_model: dict | None, liquidity_model: dict | N
     current_assets = _amount_by_code(tb, "102", "debit") + _amount_by_code(tb, "103", "debit")
     cash = _amount_by_code(tb, "103", "debit") or _sum_leaf_by_name(tb, ["بنك", "صندوق", "نقد", "الأموال الجاهزة", "اموال جاهزه", "cash", "bank"], "debit")
     ar_report = _ar_cards(liquidity_model).get("total_balance")
-    ar = _num(ar_report) if ar_report not in [None, ""] else _sum_leaf_by_name(tb, ["عملاء", "ذمم مدينة", "receivable"], "debit")
+    ar_quality = "valid"
+    ar_credit_balance = 0.0
+    if ar_report not in [None, ""]:
+        ar = _num(ar_report)
+        ar_source_note = "أعمار العملاء"
+    else:
+        # Signed AR check: a credit-balance customer account is not receivable and must not produce fake DSO.
+        ar_raw = _amount_by_code(tb, "10202", "debit", absolute=False)
+        if ar_raw <= 0:
+            # Try broad name search, but keep signed logic.
+            customer_credit = 0.0
+            lf = tb[tb["account_name"].apply(lambda x: "عميل" in _norm(x) or "عملاء" in _norm(x) or "ذمم مدينة" in _norm(x))].copy()
+            if not lf.empty:
+                signed = float((lf["current_debit"] - lf["current_credit"]).sum())
+                if signed < 0:
+                    customer_credit = abs(signed)
+            ar = 0.0
+            ar_quality = "credit_balance" if (ar_raw < 0 or customer_credit > 0) else "missing"
+            ar_credit_balance = abs(ar_raw) if ar_raw < 0 else customer_credit
+            ar_source_note = "حساب العملاء يظهر دائنًا أو غير واضح"
+        else:
+            ar = ar_raw
+            ar_source_note = "ميزان المراجعة / رصيد عملاء مدين"
     inventory = _sum_leaf_by_name(tb, ["مخزون", "بضاعة"], "debit")
 
     total_liabilities_equity = _amount_by_code(tb, "2", "credit")
@@ -271,6 +325,8 @@ def build_balance_sheet_reading(tb_model: dict | None, liquidity_model: dict | N
 
     ap_report = _ap_cards(liquidity_model).get("total_balance")
     ap = _num(ap_report) if ap_report not in [None, ""] else _sum_leaf_by_name(tb, ["مورد", "ذمم دائنة", "دائنون", "payable"], "credit")
+    if abs(ap) < 1.0:
+        ap = 0.0
 
     if total_assets <= 0:
         total_assets = fixed_assets + current_assets
@@ -279,7 +335,7 @@ def build_balance_sheet_reading(tb_model: dict | None, liquidity_model: dict | N
         ["الأصول الثابتة", fixed_assets, "ميزان المراجعة"],
         ["الأصول المتداولة", current_assets, "ميزان المراجعة / يشمل النقد إذا ظهر مستقلًا"],
         ["النقد وما في حكمه", cash, "ميزان المراجعة / تقرير السيولة إن وجد"],
-        ["العملاء / الذمم المدينة", ar, "أعمار العملاء إن وجدت وإلا ميزان المراجعة"],
+        ["العملاء / الذمم المدينة", ar, ar_source_note],
         ["المخزون", inventory, "ميزان المراجعة إن وجد"],
         ["إجمالي الأصول", total_assets, "ميزان المراجعة"],
         ["الالتزامات المتداولة", current_liabilities, "ميزان المراجعة"],
@@ -309,6 +365,8 @@ def build_balance_sheet_reading(tb_model: dict | None, liquidity_model: dict | N
         "current_assets": current_assets,
         "cash": cash,
         "ar": ar,
+        "ar_quality": ar_quality,
+        "ar_credit_balance": ar_credit_balance,
         "inventory": inventory,
         "current_liabilities": current_liabilities,
         "ap": ap,
@@ -460,19 +518,25 @@ def build_horizontal_monthly_analysis(monthly_pnl_model: pd.DataFrame | None) ->
     return out
 
 
-def build_data_reading_summary(pnl_model: dict, balance_model: dict, liquidity_model: dict | None) -> pd.DataFrame:
+def build_data_reading_summary(pnl_model: dict, balance_model: dict, liquidity_model: dict | None, revenue_quality: dict | None = None, balance_flags: dict | None = None) -> pd.DataFrame:
     b = balance_model.get("metrics", {}) if balance_model else {}
     cash_cards = _liquidity_cards(liquidity_model)
     ar_cards = _ar_cards(liquidity_model)
+    rq = revenue_quality or {}
     rows = [
-        ["الإيرادات", _money(_num(pnl_model.get("revenue"))), pnl_model.get("source", "غير محدد"), "تستخدم للحكم على الربحية والهامش."],
-        ["تكلفة الإيراد / المبيعات", _money(_num(pnl_model.get("cogs"))), "ميزان المراجعة + تصنيف المصروفات", "تحدد جودة الهامش وليست مصروفًا إداريًا."],
-        ["المصاريف التشغيلية", _money(_num(pnl_model.get("opex"))), "ميزان المراجعة + خريطة المصاريف", "تقيس ضغط التشغيل على الإيراد."],
+        ["الإيرادات", _money(_num(pnl_model.get("revenue"))), pnl_model.get("source", "trial_balance"), "تستخدم للحكم على الربحية والهامش."],
+        ["إجمالي المبيعات قبل التآكل", _money(_num(rq.get("gross_sales"))), "ميزان المراجعة / حسابات 401", "يكشف حجم المبيعات قبل الخصومات والمردودات."],
+        ["تآكل الإيراد", _money(_num(rq.get("revenue_leakage"))), "مردودات + خصومات من الميزان", "إذا كان مرتفعًا فهو خطر جودة إيراد قبل أي تحليل مصاريف."],
+        ["تكلفة الإيراد / المبيعات", _money(_num(pnl_model.get("cogs"))), "ميزان المراجعة + تصنيف إداري عميق", "تحدد جودة الهامش ولا يجوز حصرها في المشتريات فقط."],
+        ["المصاريف التشغيلية", _money(_num(pnl_model.get("opex"))), "ميزان المراجعة + خريطة المصاريف", "تقيس ضغط الإدارة والبيع والتسويق على الإيراد."],
         ["صافي الربح", _money(_num(pnl_model.get("net_profit"))), "قائمة الدخل التحليلية", "النتيجة النهائية للفترة."],
         ["النقد", _money(_num(b.get("cash")) or _num(cash_cards.get("ending_cash"))), "ميزان المراجعة / تقرير السيولة", "يستخدم للحكم على القدرة النقدية وليس الربحية."],
-        ["العملاء", _money(_num(b.get("ar")) or _num(ar_cards.get("total_balance"))), "أعمار العملاء / ميزان المراجعة", "يكشف النقد المحبوس في التحصيل."],
+        ["العملاء", _money(_num(b.get("ar")) or _num(ar_cards.get("total_balance"))), str(b.get("ar_quality", "ميزان المراجعة")), "لا يحسب DSO إذا كان حساب العملاء دائنًا."],
         ["الالتزامات المتداولة", _money(_num(b.get("current_liabilities"))), "ميزان المراجعة", "أساس نسب السيولة."],
     ]
+    bf = (balance_flags or {}).get("metrics", {}) if balance_flags else {}
+    if bf.get("rnd_assets"):
+        rows.append(["مشاريع البحث والتطوير", _money(_num(bf.get("rnd_assets"))), "ميزان المراجعة / أصول غير ملموسة أو مشاريع", "تحتاج اختبار منفعة مستقبلية وإطفاء/هبوط إذا كانت جوهرية."])
     return pd.DataFrame(rows, columns=["ما تمت قراءته", "القيمة", "المصدر", "لماذا يهم؟"])
 
 
@@ -529,7 +593,12 @@ def build_comprehensive_financial_analysis(tb_model: dict | None, pnl_model: dic
     professional ratio readings, and an optional AI-written executive narrative.
     """
     profile = profile or {}
-    management_pnl = build_management_pnl_snapshot(pnl_model, expense_model)
+    management_pnl = build_management_pnl_snapshot(pnl_model, expense_model, tb_model, profile)
+    revenue_quality_tb = management_pnl.get("revenue_quality") or build_revenue_quality_from_tb(tb_model)
+    segment_analysis = {"segment_table": management_pnl.get("segment_table", pd.DataFrame()), "warnings": management_pnl.get("warnings", []), "stream_detector": management_pnl.get("stream_detector", {})}
+    balance_flags = build_balance_quality_flags(tb_model)
+    activity_profile = infer_activity_profile(tb_model, profile)
+
     ratio_pnl = dict(pnl_model or {})
     ratio_pnl.update({
         "revenue": management_pnl.get("revenue", 0),
@@ -542,17 +611,23 @@ def build_comprehensive_financial_analysis(tb_model: dict | None, pnl_model: dic
         "selling_marketing": management_pnl.get("selling_marketing", 0),
         "finance_bank": management_pnl.get("finance_bank", 0),
         "other_opex": management_pnl.get("other_opex", 0),
+        "revenue_leakage_ratio": revenue_quality_tb.get("leakage_ratio"),
     })
     balance = build_balance_sheet_reading(tb_model, liquidity_model)
     metric_pack = build_metric_pack(ratio_pnl, management_pnl, balance, liquidity_model, breakeven_model, profile)
     cfo_intel = build_cfo_intelligence(metric_pack, profile, use_ai=use_ai_narrative)
     vertical_income = build_vertical_income_statement(ratio_pnl)
     horizontal_monthly = build_horizontal_monthly_analysis(monthly_pnl_model)
-    data_reading = build_data_reading_summary(ratio_pnl, balance, liquidity_model)
+    data_reading = build_data_reading_summary(ratio_pnl, balance, liquidity_model, revenue_quality_tb, balance_flags)
     return {
         "available": True,
         "management_pnl": management_pnl,
         "balance_sheet": balance,
+        "revenue_quality_tb": revenue_quality_tb,
+        "segment_analysis": segment_analysis,
+        "stream_detector": segment_analysis.get("stream_detector", {}),
+        "balance_quality_flags": balance_flags,
+        "activity_profile": activity_profile,
         "metric_pack": metric_pack,
         "ratios": cfo_intel.get("ratios_enriched", pd.DataFrame()),
         "financial_health_score": cfo_intel.get("financial_health_score", {}),
