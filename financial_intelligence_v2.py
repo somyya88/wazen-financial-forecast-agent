@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 import pandas as pd
+from sector_profile_engine_v12_8 import get_sector_intelligence_profile
 
 
 # -----------------------------------------------------------------------------
@@ -250,7 +251,15 @@ def build_metric_pack(pnl_model: dict, management_pnl: dict, balance_model: dict
     dso = _safe_div(ar, daily_revenue) if (daily_revenue and ar > 0) else None
     dpo = _safe_div(ap, daily_cogs) if (daily_cogs and ap > 0) else None
     dio = _safe_div(inventory, daily_cogs) if (daily_cogs and inventory > 0) else None
-    ccc = (dso if dso is not None else 0) + (dio if dio is not None else 0) - (dpo if dpo is not None else 0) if (dso is not None or dio is not None or dpo is not None) else None
+    # V12.8: CCC must not be built by treating missing DSO/DIO/DPO as zero.
+    # If inventory is material/sector-core, require DIO. If inventory is absent/not material, use an adjusted cash cycle DSO - DPO only when both are available.
+    sector_profile = get_sector_intelligence_profile(profile)
+    inv_relevance = sector_profile.get("inventory_relevance", "conditional")
+    inventory_required = inv_relevance == "core" or inventory > 0
+    if dso is not None and dpo is not None and (not inventory_required or dio is not None):
+        ccc = dso + (dio if dio is not None else 0) - dpo
+    else:
+        ccc = None
     runway = cash_cards.get("cash_runway_months")
     runway = None if runway in [None, ""] else _num(runway)
     net_cash_flow = cash_cards.get("net_cash_flow")
@@ -517,39 +526,83 @@ def build_ratio_narratives(metric_pack: dict, findings: pd.DataFrame | None = No
 
 
 def build_health_score(metric_pack: dict) -> dict:
+    """Sector-aware score with Coverage and Confidence.
+    Missing metrics are not scored as bad or good; they reduce coverage/confidence.
+    """
     m = metric_pack.get("metrics", {})
     sector = metric_pack.get("sector_type", "general")
-    components = []
+    sector_profile = get_sector_intelligence_profile({"sector": sector})
+    axes = sector_profile.get("health_weights", {}) or {"profitability": 25, "liquidity": 20, "working_capital": 20, "solvency": 15, "cash_quality": 20}
 
-    def score_metric(key, weight):
+    metric_axes = {
+        "gross_margin": "profitability",
+        "operating_margin": "profitability",
+        "net_margin": "profitability",
+        "current_ratio": "liquidity",
+        "quick_ratio": "liquidity",
+        "cash_ratio": "liquidity",
+        "dso": "working_capital",
+        "dpo": "working_capital",
+        "dio": "working_capital",
+        "ccc": "working_capital",
+        "debt_ratio": "solvency",
+        "debt_to_equity": "solvency",
+        "ocf_net_income": "cash_quality",
+        "runway": "cash_quality",
+    }
+    # split axis weight across metrics in that axis
+    axis_counts = {}
+    for axis in metric_axes.values():
+        axis_counts[axis] = axis_counts.get(axis, 0) + 1
+
+    rows = []
+    scored_points = 0.0
+    scored_weight = 0.0
+    potential_weight = 0.0
+
+    for key, axis in metric_axes.items():
+        axis_weight = float(axes.get(axis, 10))
+        weight = axis_weight / max(axis_counts.get(axis, 1), 1)
+        potential_weight += weight
         val = m.get(key)
         st, note = _status(key, val, sector)
-        base = {"جيد": 1.0, "متوسط": 0.65, "ضعيف": 0.40, "خطر": 0.15, "إرشادي": 0.55}.get(st, 0.35)
-        return {"المحور": key, "الوزن": weight, "الحكم": st, "النقاط": round(weight * base, 1), "القراءة": note}
+        available = val is not None and st != "غير محسوب"
+        if available:
+            base = {"جيد": 1.0, "متوسط": 0.65, "ضعيف": 0.40, "خطر": 0.15, "إرشادي": 0.55}.get(st, 0.50)
+            points = weight * base
+            scored_points += points
+            scored_weight += weight
+        else:
+            points = None
+        rows.append({
+            "المحور": axis,
+            "المؤشر": key,
+            "الوزن المحتمل": round(weight, 1),
+            "متاح؟": "نعم" if available else "لا",
+            "الحكم": st,
+            "النقاط المحتسبة": None if points is None else round(points, 1),
+            "القراءة": note,
+        })
 
-    components.append(score_metric("gross_margin", 12))
-    components.append(score_metric("operating_margin", 8))
-    components.append(score_metric("net_margin", 5))
-    components.append(score_metric("current_ratio", 8))
-    components.append(score_metric("quick_ratio", 7))
-    components.append(score_metric("cash_ratio", 5))
-    components.append(score_metric("dso", 8))
-    components.append(score_metric("ccc", 7))
-    components.append(score_metric("debt_ratio", 8))
-    components.append(score_metric("debt_to_equity", 7))
-    components.append(score_metric("ocf_net_income", 10))
-    components.append(score_metric("runway", 15))
-
-    df = pd.DataFrame(components)
-    total_weight = df["الوزن"].sum() or 1
-    score = round(float(df["النقاط"].sum()) / total_weight * 100, 1)
+    df = pd.DataFrame(rows)
+    coverage = round((scored_weight / potential_weight * 100), 0) if potential_weight else 0
+    score = round((scored_points / scored_weight * 100), 1) if scored_weight else 0.0
     if score >= 85: label = "ممتاز"
     elif score >= 70: label = "جيد"
     elif score >= 55: label = "يحتاج متابعة"
     elif score >= 40: label = "مرتفع المخاطر"
     else: label = "خطر حرج"
-    return {"score": score, "label": label, "components": df}
 
+    if coverage >= 80:
+        confidence = "مرتفعة"
+    elif coverage >= 55:
+        confidence = "متوسطة"
+    elif coverage > 0:
+        confidence = "منخفضة"
+    else:
+        confidence = "غير متاحة"
+
+    return {"score": score, "label": label, "coverage": coverage, "confidence": confidence, "components": df}
 
 def build_executive_summary(metric_pack: dict, findings: pd.DataFrame, health: dict, profile: dict | None = None, use_ai: bool = False) -> dict:
     m = metric_pack.get("metrics", {})

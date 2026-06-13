@@ -53,6 +53,15 @@ from liquidity_engine_v12 import build_liquidity_collections_model, liquidity_cf
 from scenario_engine_v12 import base_inputs_from_models, run_simple_scenario, predefined_scenarios
 from action_engine_v12 import build_action_center
 from period_normalization_v12 import infer_validation_end_month, trim_months_to_end
+from sector_profile_engine_v12_8 import get_sector_intelligence_profile, sector_profile_table
+from metric_source_guard_v12_8 import build_metric_guard_report, metric_guard_summary
+from benchmark_intelligence_engine_v12_8 import build_benchmark_intelligence
+from decision_ux_v12_8 import (
+    render_sector_intelligence_panel,
+    render_metric_guard_experience,
+    render_cfo_command_center,
+    render_metric_catalog_reference,
+)
 
 
 st.set_page_config(page_title=APP_NAME, page_icon="📊", layout="wide")
@@ -239,36 +248,40 @@ def _ratio_status(ratio_df: pd.DataFrame, code: str) -> str:
 
 
 def render_ratio_decision_dashboard(ratio_df: pd.DataFrame, health: dict | None = None, findings_df: pd.DataFrame | None = None):
-    st.markdown("#### لوحة المؤشرات التنفيذية")
-    st.caption("هنا لا نعرض النسب كجدول مدرسي؛ نعرض المؤشرات التي تغيّر قرار صاحب العمل أولًا، ثم نترك التفاصيل للتوسع.")
-    critical = [
-        ("هامش الربح الإجمالي", "gross_margin", "هل العمل الأساسي مربح؟"),
-        ("هامش الربح التشغيلي", "operating_margin", "هل التشغيل مربح؟"),
-        ("نسبة التداول", "current_ratio", "سيولة محاسبية"),
-        ("النسبة السريعة", "quick_ratio", "سيولة دون مخزون"),
-        ("أيام التحصيل", "dso", "من الميزان أو أعمار العملاء"),
-        ("هامش الأمان", "margin_of_safety", "بعد نقطة التعادل"),
-    ]
-    cols = st.columns(3)
-    for i, (title, code, sub) in enumerate(critical):
-        with cols[i % 3]:
-            kpi_card(title, _ratio_result(ratio_df, code), f"{_ratio_status(ratio_df, code)} · {sub}")
+    st.markdown("#### لوحة مؤشرات القرار")
+    st.caption("النسخة الجديدة لا تعرض كل النسب كجدول طويل؛ تمر كل نسبة أولًا عبر حارس المصدر: هل مدخلاتها موجودة؟ هل تناسب القطاع؟ هل هي فعلية أم تقديرية؟")
+
+    profile = refresh_business_profile()
+    full_model = st.session_state.models.get("comprehensive_model", {}) if st.session_state.get("models") else {}
+    guarded_df = build_metric_guard_report(ratio_df, full_model.get("metric_pack", {}), profile, st.session_state.files, full_model)
+
+    # Executive command strip
+    if health:
+        summary = metric_guard_summary(guarded_df)
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            kpi_card("Financial Health", f"{health.get('score',0):.0f}/100", health.get("label", ""))
+        with c2:
+            kpi_card("تغطية المؤشرات", f"{summary.get('coverage',0):.0f}%", f"{summary.get('available',0)} من {summary.get('total',0)}")
+        with c3:
+            kpi_card("ثقة القراءة", summary.get("confidence", "—"), "حسب مصدر كل نسبة")
 
     if isinstance(findings_df, pd.DataFrame) and not findings_df.empty:
-        st.markdown("#### أهم 3 نقاط تحتاج انتباه")
-        show_cols = [c for c in ["المجال", "النتيجة التنفيذية", "الدليل", "مستوى الخطورة", "السبب المحتمل", "الإجراء المقترح"] if c in findings_df.columns]
+        st.markdown("#### أهم 3 نتائج مالية قبل الجداول")
+        show_cols = [c for c in ["المجال", "النتيجة التنفيذية", "الدليل", "مستوى الخطورة", "الأثر المالي", "الإجراء المقترح"] if c in findings_df.columns]
         st.dataframe(findings_df[show_cols].head(3), use_container_width=True, hide_index=True)
 
-    if ratio_df is not None and not ratio_df.empty:
-        st.markdown("#### قراءة النسب حسب المجال")
-        for group in ratio_df.get("المجموعة", pd.Series(dtype=str)).dropna().unique():
-            sub = ratio_df[ratio_df["المجموعة"].eq(group)].copy()
+    render_metric_guard_experience(guarded_df)
+
+    if guarded_df is not None and not guarded_df.empty:
+        st.markdown("#### التفاصيل حسب المجال")
+        for group in guarded_df.get("المجموعة", pd.Series(dtype=str)).dropna().unique():
+            sub = guarded_df[guarded_df["المجموعة"].eq(group)].copy()
             if sub.empty:
                 continue
             with st.expander(f"{group} — {len(sub)} مؤشرات", expanded=group in ["الربحية", "السيولة"]):
-                display_cols = [c for c in ["المؤشر", "النتيجة", "الحكم", "سؤال الإدارة", "قراءة CFO", "الإجراء التنفيذي", "مؤشر المتابعة", "طريقة الحساب"] if c in sub.columns]
+                display_cols = [c for c in ["المؤشر", "النتيجة", "الحكم", "حالة المؤشر", "درجة الثقة", "مصدر الحساب", "سؤال الإدارة", "قراءة CFO", "الإجراء التنفيذي", "مؤشر المتابعة", "طريقة الحساب"] if c in sub.columns]
                 st.dataframe(sub[display_cols], use_container_width=True, hide_index=True)
-
 
 def render_vertical_horizontal_executive(full_model: dict):
     vi = full_model.get("vertical_income", pd.DataFrame())
@@ -740,7 +753,7 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.7</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.8</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
@@ -760,7 +773,7 @@ with st.sidebar:
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
     st.checkbox("تفعيل صياغة AI للملخص التنفيذي إذا كان المفتاح متاحًا", key="ai_narrative_enabled", value=st.session_state.get("ai_narrative_enabled", False))
-    st.caption("V12.7: Decision-first UX + TB expense/liquidity/turnover engine")
+    st.caption("V12.8: Sector-aware Metric Guard + Decision UX")
 
 
 # -----------------------------------------------------------------------------
@@ -803,6 +816,9 @@ if page == "1. إعداد النشاط":
         ["نموذج العمل وقناة البيع", "تحديد المؤشرات الأهم: تحصيل، أصناف، اشتراكات، مشاريع، فروع"],
         ["تحليل الفروع", "إذا ظهر عمود الفرع أو رفعت تقارير منفصلة، يظهر التحليل إجماليًا وحسب الفرع لاحقًا"],
     ], columns=["المدخل", "الأثر التحليلي"]))
+
+    st.markdown("### كيف سيفكر الإيجنت في هذا القطاع؟")
+    render_sector_intelligence_panel(refresh_business_profile())
 
 
 # -----------------------------------------------------------------------------
@@ -945,6 +961,7 @@ elif page == "2. رفع الملفات والمطابقة":
 elif page == "3. جاهزية التحليل":
     section_header("3. قابلية التحليل من البيانات الحالية")
     render_hero("ما الذي يمكن استخراجه الآن؟", "هذه الصفحة تترجم الملفات المرفوعة إلى نطاق تحليل واضح: ماذا نستطيع تشخيصه بثقة، وما الذي يحتاج ملفًا إضافيًا قبل الاعتماد على التوقعات.")
+    render_sector_intelligence_panel(refresh_business_profile())
 
     profile = build_readiness_profile(st.session_state.files, refresh_business_profile(), st.session_state.models)
     main_col, side_col = st.columns([2.7, 1])
@@ -1048,10 +1065,12 @@ elif page == "4. التشخيص التنفيذي":
         health = full_model.get("financial_health_score", {}) if full_model else {}
         questions = cfo_reading.get("four_questions", {}) if cfo_reading else {}
         if health:
-            h1, h2 = st.columns([1, 3])
+            h1, h2, h3 = st.columns([1, 1, 2])
             with h1:
                 kpi_card("Financial Health Score", f"{health.get('score',0):.0f}/100", health.get("label", ""))
             with h2:
+                kpi_card("Coverage / Confidence", f"{health.get('coverage', '—')}%", health.get("confidence", ""))
+            with h3:
                 if cfo_reading.get("ai_summary"):
                     st.markdown("#### قراءة AI CFO")
                     st.write(cfo_reading.get("ai_summary"))
@@ -1115,7 +1134,10 @@ elif page == "5. مساحة التحليل":
         breakeven_model = models.get("breakeven_model", {})
         liq_model = st.session_state.liquidity_model or build_liquidity_collections_model(st.session_state.files)
         full_model = models.get("comprehensive_model", {})
-        tabs = st.tabs(["مصادر الأرقام", "مؤشرات القرار", "التحليل الرأسي والأفقي", "جودة الإيراد", "الربحية", "السيولة والنقد", "التحصيل والدوران", "المصاريف", "معايير القطاع"])
+        profile = refresh_business_profile()
+        guarded_for_command = build_metric_guard_report(full_model.get("ratios", pd.DataFrame()), full_model.get("metric_pack", {}), profile, st.session_state.files, full_model)
+        render_cfo_command_center(full_model, guarded_for_command)
+        tabs = st.tabs(["مصادر الأرقام", "مؤشرات القرار", "التحليل الرأسي والأفقي", "جودة الإيراد", "الربحية", "السيولة والنقد", "التحصيل والدوران", "المصاريف", "معايير القطاع", "كتالوج النسب CMA"])
 
         with tabs[0]:
             st.subheader("مصادر الأرقام والثقة")
@@ -1185,14 +1207,20 @@ elif page == "5. مساحة التحليل":
             render_cost_structure_view(expense_model, full_model)
 
         with tabs[8]:
-            st.subheader("معايير السلامة حسب القطاع")
+            st.subheader("معايير القطاع بذكاء حذر")
             profile = refresh_business_profile()
-            scorecard = build_sector_safety_scorecard(pnl_model, breakeven_model, profile.get("sector","غير محدد"), profile.get("country",""), profile.get("activity",""))
-            summary = build_scorecard_summary(scorecard, profile.get("sector","غير محدد"))
-            render_insight_panel(summary["title"], summary["summary"], summary["risk"], summary["action"], ["المعايير الحالية أولية وقابلة للتعديل حسب القطاع والمدينة ونوع النشاط."])
-            render_sector_scorecard(scorecard)
-            st.markdown("#### أولويات التنفيذ")
-            render_actions_table(build_top_5_actions(scorecard))
+            guarded = build_metric_guard_report(full_model.get("ratios", pd.DataFrame()), full_model.get("metric_pack", {}), profile, st.session_state.files, full_model)
+            benchmark = build_benchmark_intelligence(profile, guarded)
+            render_insight_panel("Benchmark Intelligence", benchmark["narrative"], "إرشادي", "ابدأ بالمقارنة الداخلية ثم فعّل المصادر الخارجية الموثقة لاحقًا.", ["لا يوجد Benchmark خارجي يدخل الحكم النهائي دون مصدر وفترة وثقة.", "المعايير الحالية داخلية إرشادية وليست معيارًا عالميًا موثقًا."])
+            st.markdown("#### خريطة المعايير الإرشادية")
+            st.dataframe(benchmark.get("advisory_table", pd.DataFrame()), use_container_width=True, hide_index=True)
+            if not benchmark.get("internal_priority", pd.DataFrame()).empty:
+                st.markdown("#### المقارنة الداخلية أولًا")
+                st.dataframe(benchmark.get("internal_priority"), use_container_width=True, hide_index=True)
+
+        with tabs[9]:
+            st.subheader("كتالوج النسب ومنهج CMA")
+            render_metric_catalog_reference()
 
 
 # -----------------------------------------------------------------------------
