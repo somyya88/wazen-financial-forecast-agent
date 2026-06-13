@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import pandas as pd
 import streamlit as st
 
@@ -145,43 +146,64 @@ def render_requirement_cards():
     st.markdown("""
     <div class="ux-card-grid">
         <div class="ux-card must-have">
-            <span class="required-badge">★ الحد الأدنى للتحليل</span>
-            <div class="ux-card-title">ميزان مراجعة + مبيعات + مصروفات</div>
-            <div class="ux-card-text">هذه الملفات هي أساس بناء القوائم، الربحية، ومطابقة النتائج. عند نقصها لا يتم بناء نموذج مالي نهائي.</div>
+            <span class="required-badge">★ الحد الأدنى لبناء القوائم</span>
+            <div class="ux-card-title">ميزان مراجعة واحد كافٍ للبدء</div>
+            <div class="ux-card-text">من ميزان المراجعة يتم استخراج قائمة الدخل، المركز المالي، الربحية، السيولة الأساسية، والمديونية. لا يتوقف التحليل عند غياب الملفات التفصيلية.</div>
         </div>
         <div class="ux-card should-have">
             <span class="enhance-badge">يرفع دقة القرار</span>
-            <div class="ux-card-title">تقرير السيولة + أعمار العملاء + أعمار الموردين</div>
-            <div class="ux-card-text">تحول التحليل من أرقام عامة إلى نقد، تحصيل، أسماء عملاء، وأولويات متابعة.</div>
+            <div class="ux-card-title">مبيعات + مصروفات + سنة سابقة</div>
+            <div class="ux-card-text">تضيف التحليل الشهري، المقارنة مع العام السابق، اتجاهات الإيراد، نسب المصاريف، والتنبؤ الأولي.</div>
         </div>
         <div class="ux-card optional-data">
-            <span class="optional-badge">اختياري للتعمق</span>
-            <div class="ux-card-title">سنة سابقة + أصناف + عملاء + فروع</div>
-            <div class="ux-card-text">تستخدم للموسمية، المرتجعات، الخصومات، تركّز العملاء، وتحليل الفروع والمنتجات.</div>
+            <span class="optional-badge">تحليل CFO متقدم</span>
+            <div class="ux-card-title">سيولة + أعمار عملاء/موردين + أصناف/فروع</div>
+            <div class="ux-card-text">تضيف DSO وDPO وCCC، أولويات التحصيل بالأسماء، تحليل المنتجات والفروع، والسيناريوهات الأدق.</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
 
 def minimum_model_status(files: list[dict]) -> dict:
-    """Return whether we have the minimum sources for a defensible financial model."""
+    """File-aware model gate.
+    A trial balance alone is enough to build Level A financial analysis.
+    Revenue/expense/cash/aging files increase depth but must not block analysis.
+    """
     readable = [r for r in files or [] if not r.get("read_error")]
     roles = {str(r.get("selected_role") or "") for r in readable}
     has_revenue = "official_revenue_source" in roles
     has_expense = "official_expense_source" in roles
     has_tb = "validation_source" in roles
+    has_cash = "cash_source" in roles
+    has_ar = "ar_aging_source" in roles
+    has_ap = "ap_aging_source" in roles
+
+    # Level A: Trial balance. Alternative starter: monthly revenue + expense when TB is absent.
+    ok = has_tb or (has_revenue and has_expense)
     missing = []
-    if not has_tb:
-        missing.append("ميزان المراجعة")
-    if not has_revenue:
-        missing.append("تقرير المبيعات")
-    if not has_expense:
-        missing.append("تقرير المصروفات")
+    if not ok:
+        missing.append("ميزان مراجعة أو ملف مبيعات مع ملف مصروفات")
+
+    if has_tb:
+        level = "A - Financial Analysis"
+        message = "يمكن بناء القوائم المالية والنسب الأساسية من ميزان المراجعة. الملفات الأخرى ستضيف عمقًا، لكنها ليست شرطًا لبدء التحليل."
+    elif has_revenue and has_expense:
+        level = "A مبدئي - Operational P&L"
+        message = "يمكن بناء قراءة أولية للربحية من المبيعات والمصروفات، لكن المركز المالي ونسب السيولة تحتاج ميزان مراجعة."
+    else:
+        level = "غير جاهز"
+        message = "يلزم ملف أساس واحد على الأقل: ميزان مراجعة، أو مبيعات ومصروفات معًا."
+
     return {
-        "ok": has_revenue and has_expense and has_tb,
+        "ok": ok,
+        "level": level,
+        "message": message,
         "has_revenue": has_revenue,
         "has_expense": has_expense,
         "has_tb": has_tb,
+        "has_cash": has_cash,
+        "has_ar": has_ar,
+        "has_ap": has_ap,
         "missing": missing,
     }
 
@@ -190,9 +212,9 @@ def render_minimum_model_guard(status: dict):
     missing = "، ".join(status.get("missing") or [])
     st.markdown(f"""
     <div class="wazen-soft-warning">
-        <strong>لا يمكن بناء نموذج مالي موثوق بعد.</strong><br>
-        الملفات الناقصة للحد الأدنى: {missing or '—'}.<br>
-        يمكنك رفع ملف واحد أو أكثر الآن، لكن زر بناء النموذج لن يعمل قبل توفر ميزان المراجعة والمبيعات والمصروفات.
+        <strong>لا يوجد ملف أساس كافٍ لبناء النموذج بعد.</strong><br>
+        المطلوب للبدء: {missing or 'ميزان مراجعة أو مبيعات + مصروفات'}.<br>
+        ملاحظة: ميزان المراجعة وحده يكفي لاستخراج قائمة دخل ومركز مالي ونسب أساسية، ثم تُستخدم باقي الملفات لتعميق التحليل لا لإيقافه.
     </div>
     """, unsafe_allow_html=True)
 
@@ -386,16 +408,72 @@ def ingest_uploaded_files(uploaded_files, append: bool = False):
     return errors
 
 
+
+def _record_year(record: dict) -> int | None:
+    """Extract a likely fiscal year from file name or sheet cells."""
+    name = str(record.get("file_name") or "")
+    years = [int(y) for y in re.findall(r"20\d{2}", name)]
+    if years:
+        return max(years)
+    df = record.get("primary_df")
+    try:
+        sample = " ".join(df.astype(str).head(20).fillna("").values.flatten().tolist())
+        years = [int(y) for y in re.findall(r"20\d{2}", sample)]
+        return max(years) if years else None
+    except Exception:
+        return None
+
+
+def _pick_latest_record(records: list[dict], role: str | None = None, detected_type: str | None = None) -> dict | None:
+    """Pick the latest-period file when multiple years are uploaded.
+    This prevents prior-year TB/sales files from becoming the active period by accident.
+    """
+    candidates = []
+    for r in records or []:
+        if r.get("read_error"):
+            continue
+        if role and r.get("selected_role") != role:
+            continue
+        if detected_type and r.get("detected_type") != detected_type:
+            continue
+        candidates.append(r)
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda r: (_record_year(r) or 0, float(r.get("confidence") or 0), str(r.get("file_name") or "")), reverse=True)[0]
+
+
+def _pick_previous_record(records: list[dict], current: dict | None, role: str | None = None, detected_type: str | None = None) -> dict | None:
+    current_year = _record_year(current) if current else None
+    candidates = []
+    for r in records or []:
+        if r is current or r.get("read_error"):
+            continue
+        if role and r.get("selected_role") != role:
+            continue
+        if detected_type and r.get("detected_type") != detected_type:
+            continue
+        y = _record_year(r)
+        if current_year and y and y < current_year:
+            candidates.append(r)
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda r: (_record_year(r) or 0, float(r.get("confidence") or 0)), reverse=True)[0]
+
 def build_models_from_session(revenue_definition: str | None = None):
     """Build all financial models from the currently selected files.
     Used by the upload page and by the readiness page after adding files directly.
     """
     revenue_definition = revenue_definition or st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0])
     readable_files = [r for r in st.session_state.files if not r.get("read_error")]
-    revenue_record = next((r for r in readable_files if r.get("selected_role") == "official_revenue_source"), None)
-    expense_record = next((r for r in readable_files if r.get("selected_role") == "official_expense_source"), None)
-    tb_candidates = [r for r in readable_files if r.get("selected_role") == "validation_source" and r.get("detected_type") == "trial_balance"]
-    tb_record = next((r for r in tb_candidates if "ميزان" in r.get("file_name", "") or "trial" in r.get("file_name", "").lower()), None) or (tb_candidates[0] if tb_candidates else None)
+
+    # File-aware selection: when current and prior-year files are uploaded, the active model uses
+    # the latest year/period. Prior-year files are kept for comparison, not used as the current period.
+    tb_record = _pick_latest_record(readable_files, role="validation_source", detected_type="trial_balance")
+    revenue_record = _pick_latest_record(readable_files, role="official_revenue_source")
+    expense_record = _pick_latest_record(readable_files, role="official_expense_source")
+
+    previous_tb_record = _pick_previous_record(readable_files, tb_record, role="validation_source", detected_type="trial_balance")
+    previous_revenue_record = _pick_previous_record(readable_files, revenue_record, role="official_revenue_source")
 
     revenue_model = build_revenue_model(revenue_record, revenue_definition) if revenue_record else None
     expense_model = build_expense_model(expense_record, revenue_model.get("total_revenue", 0) if revenue_model else 0) if expense_record else None
@@ -410,6 +488,9 @@ def build_models_from_session(revenue_definition: str | None = None):
         expense_model["expense_ratio"] = expense_model.get("total_expenses", 0) / revenue_total
 
     tb_model = parse_trial_balance(tb_record) if tb_record else None
+    previous_tb_model = parse_trial_balance(previous_tb_record) if previous_tb_record else None
+    previous_revenue_model = build_revenue_model(previous_revenue_record, revenue_definition) if previous_revenue_record else None
+
     financial_model = build_basic_financial_model(revenue_model, expense_model)
     validation_checks = validate_project(st.session_state.file_rows, revenue_model, expense_model, tb_model)
     pnl_model = build_pnl(revenue_model, expense_model, tb_model)
@@ -427,6 +508,15 @@ def build_models_from_session(revenue_definition: str | None = None):
         "revenue_model": revenue_model,
         "expense_model": expense_model,
         "tb_model": tb_model,
+        "previous_tb_model": previous_tb_model,
+        "previous_revenue_model": previous_revenue_model,
+        "active_files": {
+            "trial_balance": tb_record.get("file_name") if tb_record else None,
+            "revenue": revenue_record.get("file_name") if revenue_record else None,
+            "expense": expense_record.get("file_name") if expense_record else None,
+            "previous_trial_balance": previous_tb_record.get("file_name") if previous_tb_record else None,
+            "previous_revenue": previous_revenue_record.get("file_name") if previous_revenue_record else None,
+        },
         "financial_model": financial_model,
         "validation_checks": validation_checks,
         "pnl_model": pnl_model,
@@ -468,7 +558,7 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.5</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.6</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
@@ -488,7 +578,7 @@ with st.sidebar:
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
     st.checkbox("تفعيل صياغة AI للملخص التنفيذي إذا كان المفتاح متاحًا", key="ai_narrative_enabled", value=st.session_state.get("ai_narrative_enabled", False))
-    st.caption("V12.5: Diagnostic Rules + CFO Narrative + Health Score")
+    st.caption("V12.6: File-aware analysis + TB-first financial engine")
 
 
 # -----------------------------------------------------------------------------
@@ -595,8 +685,8 @@ elif page == "2. رفع الملفات والمطابقة":
 
         st.markdown("### فترة التحليل وتصنيف المصاريف")
         readable_files = [r for r in st.session_state.files if not r.get("read_error")]
-        revenue_preview_record = next((r for r in readable_files if r.get("selected_role") == "official_revenue_source"), None)
-        expense_preview_record = next((r for r in readable_files if r.get("selected_role") == "official_expense_source"), None)
+        revenue_preview_record = _pick_latest_record(readable_files, role="official_revenue_source")
+        expense_preview_record = _pick_latest_record(readable_files, role="official_expense_source")
 
         revenue_definition = st.selectbox("تعريف الإيراد", REVENUE_DEFINITIONS, index=REVENUE_DEFINITIONS.index(st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0])) if st.session_state.get("revenue_definition") in REVENUE_DEFINITIONS else 0)
         st.session_state.revenue_definition = revenue_definition
@@ -646,7 +736,7 @@ elif page == "2. رفع الملفات والمطابقة":
         build_disabled = bool((preview_expense_model is not None and not st.session_state.expense_mapping_saved) or not min_status["ok"])
         if not min_status["ok"]:
             render_minimum_model_guard(min_status)
-        if st.button("بناء النموذج المالي V12", disabled=build_disabled, type="primary"):
+        if st.button("بناء النموذج المالي من الملفات المتاحة", disabled=build_disabled, type="primary"):
             with st.spinner("بناء النموذج المالي وطبقة السيولة والتحصيل..."):
                 build_models_from_session(revenue_definition)
             go_to("3. جاهزية التحليل")

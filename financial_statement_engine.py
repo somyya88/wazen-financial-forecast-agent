@@ -5,9 +5,13 @@ DEPRECIATION_CATEGORIES = ["Depreciation"]
 FINANCE_CATEGORIES = ["Finance Costs", "Interest", "Bank Charges"]
 
 def build_pnl(revenue_model, expense_model, tb_model=None):
-    # Primary logic: if Trial Balance income statement is available, use it as the official P&L.
+    # Primary logic: Trial Balance is enough for Level A financial analysis.
+    # If TB cannot read revenue but a sales file is available, build a hybrid P&L instead of reporting revenue = 0.
     tb_income = tb_model.get("income_statement", {}) if tb_model else {}
-    if tb_income.get("available"):
+    tb_revenue = float(tb_income.get("total_revenue", 0) or 0)
+    external_revenue = float(revenue_model.get("total_revenue", 0)) if revenue_model else 0
+
+    if tb_income.get("available") and (tb_revenue > 0 or external_revenue <= 0):
         pnl = tb_income.get("pnl", pd.DataFrame())
 
         return {
@@ -28,15 +32,18 @@ def build_pnl(revenue_model, expense_model, tb_model=None):
             "net_profit": tb_income.get("net_profit", 0),
             "total_expenses": tb_income.get("cogs", 0) + tb_income.get("operating_expenses", 0),
             "source": "trial_balance",
-            "note": "قائمة الدخل مبنية من ميزان المراجعة كمصدر أساسي. ملفات المبيعات والمصاريف الشهرية تستخدم للتحليل فقط."
+            "note": "قائمة الدخل مبنية من ميزان المراجعة كمصدر أساسي. ملفات المبيعات والمصاريف الشهرية تستخدم للتحليل والتوزيع، وليست شرطًا لبناء القوائم."
         }
 
-    # Fallback: use analytical files only if TB is unavailable.
-    revenue = float(revenue_model.get("total_revenue", 0)) if revenue_model else 0
+    # Fallback / hybrid: use sales and expense files, and use TB costs/expenses if expense file is missing.
+    revenue = external_revenue
     exp_long = expense_model.get("expense_long", pd.DataFrame()) if expense_model else pd.DataFrame()
 
     if exp_long.empty:
-        cogs = opex = depreciation = finance_costs = total_expenses = 0
+        cogs = float(tb_income.get("cogs", 0) or 0)
+        opex = float(tb_income.get("operating_expenses", 0) or 0)
+        depreciation = finance_costs = 0
+        total_expenses = cogs + opex
     else:
         total_expenses = float(exp_long["amount"].sum())
         cogs = float(exp_long.loc[exp_long["category"].isin(COGS_CATEGORIES), "amount"].sum())
@@ -74,8 +81,8 @@ def build_pnl(revenue_model, expense_model, tb_model=None):
         "finance_costs": finance_costs,
         "net_profit": net_profit,
         "total_expenses": total_expenses,
-        "source": "analytical_files",
-        "note": "تم بناء قائمة الدخل من الملفات التحليلية لعدم توفر ميزان مراجعة صالح."
+        "source": "hybrid_or_analytical_files",
+        "note": "تم بناء قائمة الدخل من أفضل الملفات المتاحة: المبيعات عند توفرها، والمصاريف/ميزان المراجعة للتكاليف. هذا وضع مرن لا يوقف التحليل عند نقص ملف تفصيلي."
     }
 
 def monthly_pnl(revenue_model, expense_model):
