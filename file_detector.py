@@ -69,8 +69,21 @@ def detect_file_type(df: pd.DataFrame) -> DetectionResult:
     best_type = max(score, key=score.get)
     best_score = score[best_type]
 
+    # Strong TB layouts: account code/name + opening/current debit/credit columns must be Trial Balance,
+    # even if the sample text contains expense/payroll words.
+    tb_layout_signal = (
+        ("رقم الحساب" in cols or "account code" in cols or "رمز الحساب" in cols)
+        and ("اسم الحساب" in cols or "account name" in cols or "الحساب" in cols)
+        and ("مدين" in cols or "debit" in cols)
+        and ("دائن" in cols or "credit" in cols)
+        and ("الرصيد الحالي" in cols or "نهاية المدة" in cols or "closing" in cols or "current" in cols)
+    )
+
     # Strong explicit layouts should win before generic bank/trial-balance keywords.
-    if score.get("cash_liquidity_report", 0) >= 4 and len(month_cols) >= 2:
+    if tb_layout_signal:
+        best_type = "trial_balance"
+        best_score = max(score.get("trial_balance", 0), 8)
+    elif score.get("cash_liquidity_report", 0) >= 4 and len(month_cols) >= 2:
         best_type = "cash_liquidity_report"
         best_score = score[best_type]
     elif score.get("ar_aging", 0) >= 4 and "عميل" in sample_text:

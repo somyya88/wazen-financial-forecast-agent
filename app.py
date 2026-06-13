@@ -11,7 +11,7 @@ from source_roles import suggest_role
 from file_role_resolver import apply_role_resolution_to_record, has_liquidity_files, liquidity_files_summary
 
 from revenue_engine import build_revenue_model
-from expense_engine import build_expense_model
+from expense_engine import build_expense_model, build_expense_model_from_trial_balance
 from trial_balance_engine import parse_trial_balance
 from validation_engine import validate_project
 from financial_model import build_basic_financial_model
@@ -217,6 +217,175 @@ def render_minimum_model_guard(status: dict):
         ملاحظة: ميزان المراجعة وحده يكفي لاستخراج قائمة دخل ومركز مالي ونسب أساسية، ثم تُستخدم باقي الملفات لتعميق التحليل لا لإيقافه.
     </div>
     """, unsafe_allow_html=True)
+
+
+def _ratio_row(ratio_df: pd.DataFrame, code: str) -> dict:
+    if ratio_df is None or ratio_df.empty or "الكود" not in ratio_df.columns:
+        return {}
+    m = ratio_df[ratio_df["الكود"].astype(str).eq(code)]
+    if m.empty:
+        return {}
+    return m.iloc[0].to_dict()
+
+
+def _ratio_result(ratio_df: pd.DataFrame, code: str, default="غير محسوب") -> str:
+    row = _ratio_row(ratio_df, code)
+    return str(row.get("النتيجة", default)) if row else default
+
+
+def _ratio_status(ratio_df: pd.DataFrame, code: str) -> str:
+    row = _ratio_row(ratio_df, code)
+    return str(row.get("الحكم", "")) if row else ""
+
+
+def render_ratio_decision_dashboard(ratio_df: pd.DataFrame, health: dict | None = None, findings_df: pd.DataFrame | None = None):
+    st.markdown("#### لوحة المؤشرات التنفيذية")
+    st.caption("هنا لا نعرض النسب كجدول مدرسي؛ نعرض المؤشرات التي تغيّر قرار صاحب العمل أولًا، ثم نترك التفاصيل للتوسع.")
+    critical = [
+        ("هامش الربح الإجمالي", "gross_margin", "هل العمل الأساسي مربح؟"),
+        ("هامش الربح التشغيلي", "operating_margin", "هل التشغيل مربح؟"),
+        ("نسبة التداول", "current_ratio", "سيولة محاسبية"),
+        ("النسبة السريعة", "quick_ratio", "سيولة دون مخزون"),
+        ("أيام التحصيل", "dso", "من الميزان أو أعمار العملاء"),
+        ("هامش الأمان", "margin_of_safety", "بعد نقطة التعادل"),
+    ]
+    cols = st.columns(3)
+    for i, (title, code, sub) in enumerate(critical):
+        with cols[i % 3]:
+            kpi_card(title, _ratio_result(ratio_df, code), f"{_ratio_status(ratio_df, code)} · {sub}")
+
+    if isinstance(findings_df, pd.DataFrame) and not findings_df.empty:
+        st.markdown("#### أهم 3 نقاط تحتاج انتباه")
+        show_cols = [c for c in ["المجال", "النتيجة التنفيذية", "الدليل", "مستوى الخطورة", "السبب المحتمل", "الإجراء المقترح"] if c in findings_df.columns]
+        st.dataframe(findings_df[show_cols].head(3), use_container_width=True, hide_index=True)
+
+    if ratio_df is not None and not ratio_df.empty:
+        st.markdown("#### قراءة النسب حسب المجال")
+        for group in ratio_df.get("المجموعة", pd.Series(dtype=str)).dropna().unique():
+            sub = ratio_df[ratio_df["المجموعة"].eq(group)].copy()
+            if sub.empty:
+                continue
+            with st.expander(f"{group} — {len(sub)} مؤشرات", expanded=group in ["الربحية", "السيولة"]):
+                display_cols = [c for c in ["المؤشر", "النتيجة", "الحكم", "سؤال الإدارة", "قراءة CFO", "الإجراء التنفيذي", "مؤشر المتابعة", "طريقة الحساب"] if c in sub.columns]
+                st.dataframe(sub[display_cols], use_container_width=True, hide_index=True)
+
+
+def render_vertical_horizontal_executive(full_model: dict):
+    vi = full_model.get("vertical_income", pd.DataFrame())
+    vb = full_model.get("vertical_balance", pd.DataFrame())
+    hm = full_model.get("horizontal_monthly", pd.DataFrame())
+    hb = full_model.get("horizontal_balance", pd.DataFrame())
+
+    st.markdown("#### ما الذي تكشفه النسب الرأسية؟")
+    if isinstance(vi, pd.DataFrame) and not vi.empty:
+        def val(label):
+            row = vi[vi["البند"].astype(str).eq(label)]
+            return str(row.iloc[0].get("نسبة من الإيرادات", "—")) if not row.empty else "—"
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: kpi_card("تكلفة الإيراد", val("تكلفة الإيراد / المبيعات"), "من الإيرادات")
+        with c2: kpi_card("مجمل الربح", val("مجمل الربح"), "قبل الإدارة والتسويق")
+        with c3: kpi_card("المصاريف التشغيلية", val("المصاريف التشغيلية"), "ضغط التشغيل")
+        with c4: kpi_card("صافي الربح", val("صافي الربح"), "النتيجة النهائية")
+        with st.expander("عرض جدول التحليل الرأسي لقائمة الدخل"):
+            st.dataframe(vi, use_container_width=True, hide_index=True)
+    else:
+        st.info("التحليل الرأسي لقائمة الدخل غير متاح قبل بناء قائمة دخل من الميزان أو ملفات التشغيل.")
+
+    if isinstance(hm, pd.DataFrame) and not hm.empty:
+        st.markdown("#### ما الذي تغيّر شهريًا؟")
+        st.dataframe(hm, use_container_width=True, hide_index=True)
+    else:
+        st.caption("التحليل الأفقي الشهري يحتاج بيانات شهرية من ملف المبيعات أو المصروفات. الميزان يعطي قراءة الفترة، والملفات الشهرية تعطي الاتجاه.")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if isinstance(vb, pd.DataFrame) and not vb.empty:
+            with st.expander("التحليل الرأسي للمركز المالي"):
+                st.dataframe(vb, use_container_width=True, hide_index=True)
+    with c2:
+        if isinstance(hb, pd.DataFrame) and not hb.empty:
+            with st.expander("أكبر تغيرات المركز المالي"):
+                st.dataframe(hb, use_container_width=True, hide_index=True)
+
+
+def render_liquidity_decision_view(full_model: dict, liq_model: dict | None):
+    ratio_df = full_model.get("ratios", pd.DataFrame())
+    balance = full_model.get("balance_sheet", {})
+    metrics = balance.get("metrics", {}) if balance else {}
+    st.markdown("#### نسب السيولة من ميزان المراجعة")
+    st.caption("نسب التداول والسريعة والنقدية تُحسب من المركز المالي ولا تحتاج كشف بنك. كشف البنك أو تقرير السيولة يضيف حركة نقدية وRunway فقط.")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: kpi_card("نسبة التداول", _ratio_result(ratio_df, "current_ratio"), _ratio_status(ratio_df, "current_ratio"))
+    with c2: kpi_card("النسبة السريعة", _ratio_result(ratio_df, "quick_ratio"), _ratio_status(ratio_df, "quick_ratio"))
+    with c3: kpi_card("نسبة النقدية", _ratio_result(ratio_df, "cash_ratio"), _ratio_status(ratio_df, "cash_ratio"))
+    with c4: kpi_card("رأس المال العامل", _ratio_result(ratio_df, "working_capital"), "من الميزان")
+
+    cash = (liq_model or {}).get("cash", {}) if liq_model else {}
+    if cash.get("available"):
+        st.markdown("#### حركة النقد من تقرير السيولة")
+        cards = cash.get("cards", {})
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: kpi_card("النقد الداخل", f"{cards.get('total_cash_in',0):,.0f}", "خلال الفترة")
+        with c2: kpi_card("النقد الخارج", f"{cards.get('total_cash_out',0):,.0f}", "خلال الفترة")
+        with c3: kpi_card("صافي الحركة", f"{cards.get('net_cash_flow',0):,.0f}", "داخل/خارج")
+        with c4:
+            runway = cards.get("cash_runway_months")
+            kpi_card("فترة التغطية", "—" if runway is None else f"{runway:.1f} شهر", "من الحركة النقدية")
+        monthly = cash.get("monthly", pd.DataFrame())
+        if isinstance(monthly, pd.DataFrame) and not monthly.empty:
+            st.dataframe(monthly, use_container_width=True, hide_index=True)
+    else:
+        st.info("النسب الأساسية أعلاه محسوبة من ميزان المراجعة. لقراءة حركة النقد وRunway بدقة أعلى يمكن إضافة تقرير السيولة أو كشوف البنك لاحقًا، دون أن يتوقف تحليل السيولة المحاسبية.")
+
+
+def render_collection_turnover_view(full_model: dict, liq_model: dict | None):
+    ratio_df = full_model.get("ratios", pd.DataFrame())
+    st.markdown("#### مؤشرات التحصيل والدوران")
+    st.caption("يمكن احتساب DSO ودوران الذمم من ميزان المراجعة إذا ظهرت الذمم، بينما أعمار العملاء تضيف أسماء العملاء والأرصدة وأولوية التحصيل.")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: kpi_card("أيام التحصيل DSO", _ratio_result(ratio_df, "dso"), _ratio_status(ratio_df, "dso"))
+    with c2: kpi_card("دوران الذمم", _ratio_result(ratio_df, "receivables_turnover"), _ratio_status(ratio_df, "receivables_turnover"))
+    with c3: kpi_card("أيام السداد DPO", _ratio_result(ratio_df, "dpo"), _ratio_status(ratio_df, "dpo"))
+    with c4: kpi_card("دورة النقد CCC", _ratio_result(ratio_df, "ccc"), _ratio_status(ratio_df, "ccc"))
+
+    ar = (liq_model or {}).get("ar", {}) if liq_model else {}
+    if ar.get("available"):
+        st.markdown("#### أولويات التحصيل بالأسماء")
+        st.dataframe(ar.get("detail", pd.DataFrame()).rename(columns={
+            "name": "العميل", "balance": "الرصيد", "age_days": "عمر الدين", "last_payment": "آخر سداد", "risk_level": "الخطر", "recommended_action": "الإجراء"
+        }), use_container_width=True, hide_index=True)
+    else:
+        st.info("لا يوجد ملف أعمار عملاء. لذلك نعرض نسب التحصيل من الميزان عند توفر الذمم، لكن خطة التحصيل بالأسماء تحتاج أعمار العملاء.")
+
+
+def render_cost_structure_view(expense_model: dict | None, full_model: dict):
+    mgmt = full_model.get("management_pnl", {}) or {}
+    ratio_df = full_model.get("ratios", pd.DataFrame())
+    st.markdown("#### هيكل التكلفة من ميزان المراجعة والتصنيف")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: kpi_card("تكلفة الإيراد", _ratio_result(ratio_df, "cogs_ratio"), "من الإيراد")
+    with c2: kpi_card("المصاريف الإدارية", _ratio_result(ratio_df, "admin_ratio"), "من الإيراد")
+    with c3: kpi_card("البيع والتسويق", _ratio_result(ratio_df, "sm_ratio"), "من الإيراد")
+    with c4: kpi_card("هامش التشغيل", _ratio_result(ratio_df, "operating_margin"), _ratio_status(ratio_df, "operating_margin"))
+
+    if mgmt and isinstance(mgmt.get("management_table"), pd.DataFrame) and not mgmt.get("management_table").empty:
+        with st.expander("قائمة الدخل الإدارية وهيكل التكلفة", expanded=True):
+            st.dataframe(mgmt.get("management_table"), use_container_width=True, hide_index=True)
+
+    if expense_model:
+        notes = expense_model.get("notes") or []
+        if notes:
+            st.caption(" ".join(notes))
+        cat_df = expense_model.get("by_category", pd.DataFrame()).copy()
+        top_df = expense_model.get("top_expenses", pd.DataFrame()).copy()
+        if isinstance(cat_df, pd.DataFrame) and not cat_df.empty:
+            st.markdown("#### توزيع المصاريف حسب التصنيف")
+            st.dataframe(cat_df, use_container_width=True, hide_index=True)
+        if isinstance(top_df, pd.DataFrame) and not top_df.empty:
+            st.markdown("#### أكبر بنود المصاريف التي يجب مراجعتها")
+            st.dataframe(top_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("لا توجد مصاريف قابلة للقراءة من الميزان أو ملف المصروفات.")
 
 
 def render_suggested_file_column(profile: dict):
@@ -476,20 +645,33 @@ def build_models_from_session(revenue_definition: str | None = None):
     previous_revenue_record = _pick_previous_record(readable_files, revenue_record, role="official_revenue_source")
 
     revenue_model = build_revenue_model(revenue_record, revenue_definition) if revenue_record else None
-    expense_model = build_expense_model(expense_record, revenue_model.get("total_revenue", 0) if revenue_model else 0) if expense_record else None
-    if expense_model and st.session_state.expense_mapping is not None and st.session_state.expense_mapping_saved:
+
+    # Parse TB early. A trial balance alone is enough to build P&L, BS, expenses and liquidity ratios.
+    tb_model = parse_trial_balance(tb_record) if tb_record else None
+    previous_tb_model = parse_trial_balance(previous_tb_record) if previous_tb_record else None
+    previous_revenue_model = build_revenue_model(previous_revenue_record, revenue_definition) if previous_revenue_record else None
+
+    # Expense detail files add monthly distribution. If absent, derive cost structure from the Trial Balance.
+    preliminary_revenue_total = (revenue_model.get("total_revenue", 0) if revenue_model else 0) or ((tb_model or {}).get("income_statement", {}) or {}).get("total_revenue", 0)
+    if expense_record:
+        expense_model = build_expense_model(expense_record, preliminary_revenue_total)
+    elif tb_model:
+        expense_model = build_expense_model_from_trial_balance(tb_model, preliminary_revenue_total)
+    else:
+        expense_model = None
+
+    # Apply saved mapping when available. If the user has not reviewed it, the system still builds with deterministic defaults.
+    if expense_model and st.session_state.expense_mapping is not None:
         expense_model = apply_expense_mapping(expense_model, st.session_state.expense_mapping)
 
     confirmed_months = st.session_state.selected_months
     revenue_model = filter_revenue_model(revenue_model, confirmed_months) if revenue_model and confirmed_months else revenue_model
-    expense_model = filter_expense_model(expense_model, confirmed_months) if expense_model and confirmed_months else expense_model
-    revenue_total = revenue_model.get("total_revenue", 0) if revenue_model else 0
+    # Do not filter TB-derived Total expenses by monthly selections.
+    if expense_model and confirmed_months and expense_model.get("source") != "trial_balance":
+        expense_model = filter_expense_model(expense_model, confirmed_months)
+    revenue_total = (revenue_model.get("total_revenue", 0) if revenue_model else 0) or ((tb_model or {}).get("income_statement", {}) or {}).get("total_revenue", 0)
     if expense_model and revenue_total:
         expense_model["expense_ratio"] = expense_model.get("total_expenses", 0) / revenue_total
-
-    tb_model = parse_trial_balance(tb_record) if tb_record else None
-    previous_tb_model = parse_trial_balance(previous_tb_record) if previous_tb_record else None
-    previous_revenue_model = build_revenue_model(previous_revenue_record, revenue_definition) if previous_revenue_record else None
 
     financial_model = build_basic_financial_model(revenue_model, expense_model)
     validation_checks = validate_project(st.session_state.file_rows, revenue_model, expense_model, tb_model)
@@ -558,7 +740,7 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.6</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V12.7</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
@@ -578,7 +760,7 @@ with st.sidebar:
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
     st.checkbox("تفعيل صياغة AI للملخص التنفيذي إذا كان المفتاح متاحًا", key="ai_narrative_enabled", value=st.session_state.get("ai_narrative_enabled", False))
-    st.caption("V12.6: File-aware analysis + TB-first financial engine")
+    st.caption("V12.7: Decision-first UX + TB expense/liquidity/turnover engine")
 
 
 # -----------------------------------------------------------------------------
@@ -687,11 +869,19 @@ elif page == "2. رفع الملفات والمطابقة":
         readable_files = [r for r in st.session_state.files if not r.get("read_error")]
         revenue_preview_record = _pick_latest_record(readable_files, role="official_revenue_source")
         expense_preview_record = _pick_latest_record(readable_files, role="official_expense_source")
+        tb_preview_record = _pick_latest_record(readable_files, role="validation_source", detected_type="trial_balance")
 
         revenue_definition = st.selectbox("تعريف الإيراد", REVENUE_DEFINITIONS, index=REVENUE_DEFINITIONS.index(st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0])) if st.session_state.get("revenue_definition") in REVENUE_DEFINITIONS else 0)
         st.session_state.revenue_definition = revenue_definition
         preview_revenue_model = build_revenue_model(revenue_preview_record, revenue_definition) if revenue_preview_record else None
-        preview_expense_model = build_expense_model(expense_preview_record, preview_revenue_model.get("total_revenue", 0) if preview_revenue_model else 0) if expense_preview_record else None
+        preview_tb_model = parse_trial_balance(tb_preview_record) if tb_preview_record else None
+        preview_revenue_total = (preview_revenue_model.get("total_revenue", 0) if preview_revenue_model else 0) or ((preview_tb_model or {}).get("income_statement", {}) or {}).get("total_revenue", 0)
+        if expense_preview_record:
+            preview_expense_model = build_expense_model(expense_preview_record, preview_revenue_total)
+        elif preview_tb_model:
+            preview_expense_model = build_expense_model_from_trial_balance(preview_tb_model, preview_revenue_total)
+        else:
+            preview_expense_model = None
 
         revenue_months = months_from_revenue_model(preview_revenue_model)
         expense_months = months_from_expense_model(preview_expense_model)
@@ -721,9 +911,11 @@ elif page == "2. رفع الملفات والمطابقة":
                 with st.spinner("تصنيف الحسابات لأول مرة حسب القطاع..."):
                     initial_mapping = apply_smart_classification(base_mapping, sector_context=industry, use_openai=True)
                 st.session_state.expense_mapping = initial_mapping.copy()
-                st.session_state.expense_mapping_saved = False
+                # Auto classification is accepted as a starting point; user edits can be applied later.
+                st.session_state.expense_mapping_saved = True
                 st.session_state.mapping_signature = current_signature
-            st.info("تم بناء خريطة المصاريف من الحسابات نفسها مع مراعاة القطاع المحدد. في الشركات البرمجية، الرواتب التشغيلية وخدمات التنفيذ/الدعم تُعامل كتكلفة إيراد عند وجود دلالة واضحة، ورواتب المبيعات ضمن البيع والتسويق، والرواتب الإدارية ضمن المصاريف الإدارية. راجعي فقط البنود منخفضة الثقة أو المصنفة بحاجة مراجعة.")
+            source_label = "من ميزان المراجعة" if preview_expense_model.get("source") == "trial_balance" else "من ملف المصروفات التفصيلي"
+            st.info(f"تم بناء خريطة المصاريف {source_label}. ميزان المراجعة يكفي لاستخراج المصاريف وهيكل التكلفة، وملف المصروفات الشهري يضيف التوزيع الشهري فقط. راجعي فقط البنود منخفضة الثقة أو المصنفة بحاجة مراجعة.")
             edited_mapping = render_expense_mapping_editor(st.session_state.expense_mapping, key_prefix="expense_mapping_v12")
             if st.button("حفظ تصنيف المصاريف", type="secondary"):
                 st.session_state.expense_mapping = edited_mapping.copy()
@@ -733,7 +925,9 @@ elif page == "2. رفع الملفات والمطابقة":
             st.info("لا توجد مصاريف كافية لبناء خريطة تصنيف الآن.")
 
         min_status = minimum_model_status(st.session_state.files)
-        build_disabled = bool((preview_expense_model is not None and not st.session_state.expense_mapping_saved) or not min_status["ok"])
+        # Do not block model building because mapping was not manually reviewed.
+        # Build with deterministic/AI defaults and allow later reclassification + recalculation.
+        build_disabled = bool(not min_status["ok"])
         if not min_status["ok"]:
             render_minimum_model_guard(min_status)
         if st.button("بناء النموذج المالي من الملفات المتاحة", disabled=build_disabled, type="primary"):
@@ -742,7 +936,7 @@ elif page == "2. رفع الملفات والمطابقة":
             go_to("3. جاهزية التحليل")
 
         if preview_expense_model is not None and not st.session_state.expense_mapping_saved:
-            st.warning("احفظي تصنيف المصاريف قبل بناء النموذج.")
+            st.warning("توجد تعديلات غير مطبقة على التصنيف. يمكن بناء النموذج بالتصنيف الحالي، أو حفظ التعديلات ثم إعادة البناء.")
 
 
 # -----------------------------------------------------------------------------
@@ -921,87 +1115,36 @@ elif page == "5. مساحة التحليل":
         breakeven_model = models.get("breakeven_model", {})
         liq_model = st.session_state.liquidity_model or build_liquidity_collections_model(st.session_state.files)
         full_model = models.get("comprehensive_model", {})
-        tabs = st.tabs(["قراءة البيانات", "النسب المالية", "التحليل الرأسي والأفقي", "جودة الإيراد", "الربحية", "السيولة والنقد", "التحصيل", "المصاريف", "معايير القطاع"])
+        tabs = st.tabs(["مصادر الأرقام", "مؤشرات القرار", "التحليل الرأسي والأفقي", "جودة الإيراد", "الربحية", "السيولة والنقد", "التحصيل والدوران", "المصاريف", "معايير القطاع"])
 
         with tabs[0]:
-            st.subheader("قراءة البيانات المالية")
-            cfo_reading = full_model.get("cfo_reading", {})
-            if cfo_reading:
-                st.markdown(f"""
-                <div class="cfo-brief-pro">
-                    <h3>قراءة CFO من البيانات الحالية</h3>
-                    <p class="focus">{cfo_reading.get('headline','')}</p>
-                    <p><strong>التشخيص:</strong> {cfo_reading.get('diagnosis','')}</p>
-                    <p><strong>السيولة:</strong> {cfo_reading.get('liquidity','')}</p>
-                    <p><strong>الإجراء:</strong> {cfo_reading.get('action','')}</p>
-                </div>
-                """, unsafe_allow_html=True)
+            st.subheader("مصادر الأرقام والثقة")
+            st.caption("هذه الصفحة للتدقيق فقط: من أين جاء كل رقم؟ أما التشخيص التنفيذي فيظهر مرة واحدة في صفحة التشخيص حتى لا تتكرر القراءة.")
             data_reading = full_model.get("data_reading", pd.DataFrame())
-            if not data_reading.empty:
-                st.markdown("#### ما الذي قرأه الإيجنت من الملفات؟")
+            if isinstance(data_reading, pd.DataFrame) and not data_reading.empty:
                 st.dataframe(data_reading, use_container_width=True, hide_index=True)
             mgmt = full_model.get("management_pnl", {})
-            if mgmt and not mgmt.get("management_table", pd.DataFrame()).empty:
-                st.markdown("#### قائمة الدخل الإدارية بعد إعادة تصنيف تكلفة الإيراد")
-                st.caption("هذه القراءة تعالج المشكلة التي ظهرت في الشركات البرمجية: رواتب التشغيل والدعم والتنفيذ ليست دائمًا مصاريف إدارية؛ قد تكون تكلفة إيراد إذا كانت مرتبطة بتقديم الخدمة.")
-                st.dataframe(mgmt.get("management_table"), use_container_width=True, hide_index=True)
+            if mgmt and isinstance(mgmt.get("management_table"), pd.DataFrame) and not mgmt.get("management_table").empty:
+                with st.expander("قائمة الدخل الإدارية ومصدر التصنيف"):
+                    st.caption("تظهر هنا إعادة عرض تكلفة الإيراد والمصاريف. هذه ليست تكرارًا للتشخيص، بل طبقة تدقيق للرقم.")
+                    st.dataframe(mgmt.get("management_table"), use_container_width=True, hide_index=True)
             bs = (full_model.get("balance_sheet") or {})
             if bs.get("available"):
-                st.markdown("#### المركز المالي التحليلي")
-                st.dataframe(bs.get("balance_sheet", pd.DataFrame()), use_container_width=True, hide_index=True)
+                with st.expander("المركز المالي التحليلي"):
+                    st.dataframe(bs.get("balance_sheet", pd.DataFrame()), use_container_width=True, hide_index=True)
             else:
                 st.info("المركز المالي غير متاح قبل قراءة ميزان مراجعة صالح.")
 
         with tabs[1]:
-            st.subheader("النسب المالية ومعايير السلامة")
-            st.caption("هذه النسب هي الحد الأدنى لأي محلل مالي: ربحية، سيولة، مديونية، وكفاءة. المعايير هنا إرشادية قابلة للتعديل حسب القطاع والمدينة ونموذج العمل.")
+            st.subheader("مؤشرات القرار المالي")
             health = full_model.get("financial_health_score", {})
             findings_df = full_model.get("diagnostic_findings", pd.DataFrame())
-            if health:
-                c1, c2 = st.columns([1, 3])
-                with c1:
-                    kpi_card("Financial Health Score", f"{health.get('score',0):.0f}/100", health.get("label", ""))
-                with c2:
-                    st.caption("الدرجة مركبة من الربحية والسيولة ورأس المال العامل والمديونية وجودة التدفق النقدي. انخفاض الدرجة يجب أن يظهر معه سبب وإجراء، وليس رقمًا فقط.")
-            if isinstance(findings_df, pd.DataFrame) and not findings_df.empty:
-                st.markdown("#### أهم نتائج التشخيص مرتبة حسب الأولوية")
-                st.dataframe(findings_df.drop(columns=["الأولوية"], errors="ignore").head(5), use_container_width=True, hide_index=True)
             ratio_df = full_model.get("ratios", pd.DataFrame())
-            if not ratio_df.empty:
-                groups = list(ratio_df["المجموعة"].dropna().unique())
-                selected_groups = safe_multiselect("فلترة مجموعات النسب", groups, default=groups)
-                view = ratio_df[ratio_df["المجموعة"].isin(selected_groups)] if selected_groups else ratio_df
-                st.dataframe(view, use_container_width=True, hide_index=True)
-                st.markdown("#### قراءة سريعة")
-                risk_rows = ratio_df[ratio_df["الحكم"].isin(["خطر", "ضعيف"])]
-                if risk_rows.empty:
-                    st.success("لا تظهر مؤشرات خطر حادة ضمن النسب المحسوبة، لكن القرار النهائي يحتاج قراءة السيولة والتحصيل والتصنيف النهائي للمصاريف.")
-                else:
-                    for _, r in risk_rows.head(5).iterrows():
-                        st.warning(f"{r['المؤشر']}: {r['النتيجة']} — {r.get('قراءة CFO', r.get('قراءة أولية', ""))}")
-            else:
-                st.info("لا يمكن حساب النسب قبل بناء قائمة دخل ومركز مالي.")
+            render_ratio_decision_dashboard(ratio_df, health, findings_df)
 
         with tabs[2]:
             st.subheader("التحليل الرأسي والأفقي")
-            st.markdown("#### التحليل الرأسي لقائمة الدخل")
-            vi = full_model.get("vertical_income", pd.DataFrame())
-            if not vi.empty:
-                st.dataframe(vi, use_container_width=True, hide_index=True)
-            st.markdown("#### التحليل الرأسي للمركز المالي")
-            vb = full_model.get("vertical_balance", pd.DataFrame())
-            if not vb.empty:
-                st.dataframe(vb, use_container_width=True, hide_index=True)
-            st.markdown("#### التحليل الأفقي الشهري")
-            hm = full_model.get("horizontal_monthly", pd.DataFrame())
-            if not hm.empty:
-                st.dataframe(hm, use_container_width=True, hide_index=True)
-            else:
-                st.info("التحليل الأفقي الشهري يحتاج مبيعات ومصاريف شهرية مقروءة.")
-            st.markdown("#### أكبر تغيرات المركز المالي بين أول وآخر الفترة")
-            hb = full_model.get("horizontal_balance", pd.DataFrame())
-            if not hb.empty:
-                st.dataframe(hb, use_container_width=True, hide_index=True)
+            render_vertical_horizontal_executive(full_model)
 
         with tabs[3]:
             st.subheader("جودة الإيراد")
@@ -1030,71 +1173,16 @@ elif page == "5. مساحة التحليل":
                 render_executive_monthly_profitability(build_executive_monthly_profitability(monthly_pnl_model, pnl_model, expense_model))
 
         with tabs[5]:
-            st.subheader("السيولة النقدية")
-            cash = liq_model.get("cash", {})
-            if cash.get("available"):
-                cards = cash.get("cards", {})
-                c1,c2,c3,c4 = st.columns(4)
-                with c1: kpi_card("النقد الداخل", f"{cards.get('total_cash_in',0):,.0f}", "داخلة خلال الفترة")
-                with c2: kpi_card("النقد الخارج", f"{cards.get('total_cash_out',0):,.0f}", "خارجة خلال الفترة")
-                with c3: kpi_card("صافي الحركة النقدية", f"{cards.get('net_cash_flow',0):,.0f}", "صافي الحركة")
-                with c4:
-                    runway = cards.get("cash_runway_months")
-                    kpi_card("فترة التغطية النقدية", "—" if runway is None else f"{runway:.1f} شهر", "مبدئي")
-                monthly = cash.get("monthly", pd.DataFrame())
-                if not monthly.empty:
-                    st.dataframe(monthly, use_container_width=True, hide_index=True)
-                    line_chart(monthly, "month", "ending_cash_proxy", "اتجاه الرصيد النقدي التراكمي")
-            else:
-                st.warning("لا يوجد تقرير سيولة نقدية مقروء. يمكن استخدام كشوف البنك لاحقًا للتحقق والتفصيل، لكن الأفضل رفع تقرير السيولة النقدية للحصول على قراءة شهرية مباشرة.")
-                cash_extra = st.file_uploader("إضافة تقرير السيولة النقدية من هنا", type=["xlsx", "xls"], accept_multiple_files=True, key="cash_tab_extra_upload")
-                if cash_extra and st.button("قراءة تقرير السيولة وتحديث التحليل", key="cash_tab_extra_btn"):
-                    ingest_uploaded_files(cash_extra, append=True)
-                    build_models_from_session(st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0]))
-                    st.success("تم تحديث تحليل السيولة.")
-                    st.rerun()
+            st.subheader("السيولة والنقد")
+            render_liquidity_decision_view(full_model, liq_model)
 
         with tabs[6]:
-            st.subheader("التحصيل وأعمار العملاء")
-            ar = liq_model.get("ar", {})
-            if ar.get("available"):
-                cards = ar.get("cards", {})
-                c1,c2,c3,c4 = st.columns(4)
-                with c1: kpi_card("إجمالي الذمم", f"{cards.get('total_balance',0):,.0f}", "حسب ملف الأعمار")
-                with c2: kpi_card("المتأخر", f"{cards.get('overdue_balance',0):,.0f}", f"{cards.get('overdue_pct',0)*100:.1f}%")
-                with c3: kpi_card("تركيز أعلى 5", f"{cards.get('top5_concentration',0)*100:.1f}%", "خطر تركّز العملاء")
-                with c4: kpi_card("عدد العملاء", f"{cards.get('count',0)}", "بحسب التقرير")
-                st.markdown("#### أولويات التحصيل التفاعلية")
-                st.dataframe(ar.get("detail", pd.DataFrame()).rename(columns={
-                    "name": "العميل", "balance": "الرصيد", "age_days": "عمر الدين", "last_payment": "آخر سداد", "risk_level": "الخطر", "recommended_action": "الإجراء"
-                }), use_container_width=True, hide_index=True)
-            else:
-                st.warning("لا يوجد ملف أعمار عملاء. لن نكتفي بتوصية عامة؛ عند رفعه سيظهر العملاء والأرصدة وأولوية التحصيل بالأسماء.")
-                ar_extra = st.file_uploader("إضافة أعمار ديون العملاء من هنا", type=["xlsx", "xls"], accept_multiple_files=True, key="ar_tab_extra_upload")
-                if ar_extra and st.button("قراءة أعمار العملاء وتحديث التحليل", key="ar_tab_extra_btn"):
-                    ingest_uploaded_files(ar_extra, append=True)
-                    build_models_from_session(st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0]))
-                    st.success("تم تحديث تحليل التحصيل.")
-                    st.rerun()
+            st.subheader("التحصيل والدوران")
+            render_collection_turnover_view(full_model, liq_model)
 
         with tabs[7]:
             st.subheader("المصاريف وهيكل التكلفة")
-            if expense_model:
-                monthly_exp = expense_model.get("monthly_expenses", pd.DataFrame()).copy()
-                cat_df = expense_model.get("by_category", pd.DataFrame()).copy()
-                c1,c2 = st.columns(2)
-                with c1:
-                    st.markdown("#### المصاريف الشهرية")
-                    st.dataframe(monthly_exp, use_container_width=True, hide_index=True)
-                    if not monthly_exp.empty: bar_chart(monthly_exp, "month", "expenses", "المصاريف الشهرية")
-                with c2:
-                    st.markdown("#### هيكل المصاريف")
-                    st.dataframe(cat_df, use_container_width=True, hide_index=True)
-                    if not cat_df.empty: pie_chart(cat_df, "category", "amount", "Expense Structure")
-                st.markdown("#### أكبر بنود المصاريف")
-                st.dataframe(expense_model.get("top_expenses", pd.DataFrame()), use_container_width=True, hide_index=True)
-            else:
-                st.info("لا توجد مصاريف كافية.")
+            render_cost_structure_view(expense_model, full_model)
 
         with tabs[8]:
             st.subheader("معايير السلامة حسب القطاع")

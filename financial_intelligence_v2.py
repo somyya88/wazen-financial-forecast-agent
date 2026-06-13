@@ -245,9 +245,11 @@ def build_metric_pack(pnl_model: dict, management_pnl: dict, balance_model: dict
     period_days = float(profile.get("period_days") or 150.0)
     daily_revenue = revenue / period_days if revenue else 0
     daily_cogs = cogs / period_days if cogs else 0
-    dso = _safe_div(ar, daily_revenue) if daily_revenue else None
-    dpo = _safe_div(ap, daily_cogs) if daily_cogs else None
-    dio = _safe_div(inventory, daily_cogs) if daily_cogs and inventory else None
+    # Do not display 0 days as a valid DSO/DPO/CCC when no AR/AP/Inventory balance exists.
+    # 0 can be a real result only if the source explicitly has zero receivables/payables; in generic TB reading, absence should be "غير محسوب".
+    dso = _safe_div(ar, daily_revenue) if (daily_revenue and ar > 0) else None
+    dpo = _safe_div(ap, daily_cogs) if (daily_cogs and ap > 0) else None
+    dio = _safe_div(inventory, daily_cogs) if (daily_cogs and inventory > 0) else None
     ccc = (dso if dso is not None else 0) + (dio if dio is not None else 0) - (dpo if dpo is not None else 0) if (dso is not None or dio is not None or dpo is not None) else None
     runway = cash_cards.get("cash_runway_months")
     runway = None if runway in [None, ""] else _num(runway)
