@@ -8,6 +8,17 @@ APP_NAME = "Wazen CFO Intelligence Agent V13.5"
 APP_VERSION = "13.5"
 DEFAULT_CURRENCY = "SAR"
 
+# Wazen brand/theme constants used by theme.py and UI components.
+WAZEN_BLUE = "#17479E"
+WAZEN_ORANGE = "#FAA61A"
+WAZEN_LIGHT_BG = "#F7F9FC"
+WAZEN_TEXT = "#1F2D3D"
+WAZEN_BORDER = "#E6EAF0"
+WAZEN_SOFT_BLUE = "#EAF2FF"
+WAZEN_GREEN = "#EAF8F0"
+WAZEN_RED = "#FDECEC"
+
+
 SOURCE_ROLES = [
     "validation_source",          # Trial balance / source of truth for statements
     "official_revenue_source",    # Sales / revenue report
