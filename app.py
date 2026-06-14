@@ -31,6 +31,13 @@ from sector_action_engine import build_sector_safety_scorecard, build_top_5_acti
 from executive_diagnosis_engine import build_owner_diagnosis
 from executive_insights_engine import build_financial_performance_scorecard, build_forecast_decision
 from executive_statement_engine import build_executive_kpis, build_executive_income_statement, build_executive_monthly_profitability
+from ai_executive_diagnosis_engine import (
+    build_ai_diagnosis_payload,
+    generate_ai_executive_diagnosis,
+    fallback_executive_diagnosis,
+    payload_signature,
+    openai_available,
+)
 from revenue_quality_engine import build_revenue_quality
 from decision_quality_engine import build_owner_ratios_summary, build_formula_table, build_decision_action_plan
 from insights_engine import build_forecast_insights, build_forecast_assumptions_table
@@ -87,6 +94,8 @@ DEFAULTS = {
     "nav_page": "1. إعداد النشاط",
     "pending_rebuild": False,
     "revenue_definition": REVENUE_DEFINITIONS[0],
+    "ai_exec_diag_cache": {},
+    "ai_exec_diag_signature": "",
 }
 for key, value in DEFAULTS.items():
     if key not in st.session_state:
@@ -1768,11 +1777,11 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V13.7</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V13.9</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("## Wazen V13.7")
+    st.markdown("## Wazen V13.9")
     st.caption("Financial Health & Action Intelligence")
     if st.session_state.get("nav_page") not in PAGE_OPTIONS:
         st.session_state.nav_page = PAGE_OPTIONS[0]
@@ -1788,7 +1797,7 @@ with st.sidebar:
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
     st.checkbox("تفعيل صياغة AI للملخص التنفيذي إذا كان المفتاح متاحًا", key="ai_narrative_enabled", value=st.session_state.get("ai_narrative_enabled", False))
-    st.caption("V13.7: Hover Decision Basis + Executive Vertical/Horizontal UX")
+    st.caption("V13.9: AI Executive Diagnosis Engine")
 
 
 # -----------------------------------------------------------------------------
@@ -2067,28 +2076,59 @@ elif page == "4. التشخيص التنفيذي":
         diag = build_owner_diagnosis(pnl_model, breakeven_model, expense_model, profile.get("sector", "غير محدد"), profile.get("country", ""), profile.get("activity", ""))
         liq_diag = liquidity_cfo_narrative(liq_model, pnl_model)
 
-        st.markdown("### التشخيص قبل الأرقام")
+        st.markdown("### القراءة التنفيذية")
         full_model = models.get("comprehensive_model", {})
         cfo_reading = full_model.get("cfo_reading") or {}
-        if cfo_reading:
-            headline = cfo_reading.get("headline", "")
-            diagnosis_text = cfo_reading.get("diagnosis", "")
-            cash_text = cfo_reading.get("liquidity", "")
-            action_text = cfo_reading.get("action", "")
+
+        ai_payload = build_ai_diagnosis_payload(
+            models=models,
+            profile=profile,
+            liquidity_model=liq_model,
+            liquidity_diagnosis=liq_diag,
+            exec_kpis=exec_kpis,
+            files=st.session_state.files,
+        )
+        ai_sig = payload_signature(ai_payload)
+        ai_enabled = bool(st.session_state.get("ai_narrative_enabled", False))
+        refresh_ai = st.button("تحديث القراءة التنفيذية", use_container_width=False)
+
+        if ai_enabled:
+            if (refresh_ai or st.session_state.get("ai_exec_diag_signature") != ai_sig or not st.session_state.get("ai_exec_diag_cache")):
+                with st.spinner("يتم توليد قراءة تنفيذية مخصصة من بيانات الشركة الحالية..."):
+                    st.session_state.ai_exec_diag_cache = generate_ai_executive_diagnosis(ai_payload)
+                    st.session_state.ai_exec_diag_signature = ai_sig
+            exec_diag = st.session_state.get("ai_exec_diag_cache") or fallback_executive_diagnosis(ai_payload)
+            if exec_diag.get("source") == "no_key":
+                st.warning("تم تفعيل الذكاء الصناعي، لكن لا يوجد مفتاح OpenAI في Streamlit Secrets أو متغيرات البيئة. ستظهر قراءة داخلية بديلة إلى أن يتم ضبط المفتاح.")
+            elif exec_diag.get("source") == "error_fallback":
+                st.warning("تعذر توليد القراءة عبر الذكاء الصناعي، لذلك تم استخدام قراءة داخلية بديلة. راجعي إعدادات المفتاح أو سجل الأخطاء.")
         else:
-            cfo_brief = build_cfo_executive_brief(exec_kpis, pnl_model, liq_model, liq_diag, profile)
-            headline = cfo_brief["headline"]
-            diagnosis_text = cfo_brief["issue"]
-            cash_text = cfo_brief["cash_line"]
-            action_text = cfo_brief["action"]
-        tone_class = "danger" if exec_kpis.get("net_profit",0) < 0 else "focus"
+            exec_diag = fallback_executive_diagnosis(ai_payload)
+
+        headline = exec_diag.get("headline") or "قراءة تنفيذية غير مكتملة"
+        source_label = "مولدة من بيانات الشركة" if exec_diag.get("source") == "ai" else "قراءة داخلية من محرك وازن"
+        if not ai_enabled:
+            source_label = "قراءة داخلية — فعّلي AI للحصول على صياغة CFO مخصصة"
+        tone_class = "danger" if exec_kpis.get("net_profit",0) < 0 or "خس" in str(headline) else "focus"
+
+        def _ul(items):
+            if not isinstance(items, list):
+                items = [items] if items else []
+            return "".join([f"<li>{_html_escape(x)}</li>" for x in items if str(x or '').strip()]) or "<li>لا توجد ملاحظات إضافية من النموذج الحالي.</li>"
+
         st.markdown(f"""
-        <div class="cfo-brief-pro">
-            <h3>أكبر رسالة لصاحب العمل الآن</h3>
-            <p class="{tone_class}">{headline}</p>
-            <p><strong>قراءة البيانات:</strong> {diagnosis_text}</p>
-            <p><strong>السيولة ورأس المال العامل:</strong> {cash_text}</p>
-            <p><strong>الإجراء العملي القادم:</strong> {action_text}</p>
+        <div class="ai-cfo-diagnosis">
+            <div class="ai-cfo-source">{_html_escape(source_label)}</div>
+            <h3>{_html_escape(headline)}</h3>
+            <p class="ai-cfo-main {tone_class}">{_html_escape(exec_diag.get('executive_message',''))}</p>
+            <div class="ai-cfo-grid">
+                <div class="ai-cfo-box"><h4>الدليل المالي</h4><ul>{_ul(exec_diag.get('evidence', []))}</ul></div>
+                <div class="ai-cfo-box"><h4>الخطر التنفيذي</h4><ul>{_ul(exec_diag.get('risks', []))}</ul></div>
+                <div class="ai-cfo-box"><h4>السيولة ورأس المال العامل</h4><p>{_html_escape(exec_diag.get('cash_and_working_capital',''))}</p></div>
+                <div class="ai-cfo-box"><h4>حدود الحكم</h4><ul>{_ul(exec_diag.get('data_limits', []))}</ul></div>
+            </div>
+            <div class="ai-cfo-actions"><h4>الإجراء القادم</h4><ul>{_ul(exec_diag.get('next_actions', []))}</ul></div>
+            <div class="ai-cfo-note">{_html_escape(exec_diag.get('confidence_note',''))}</div>
         </div>
         """, unsafe_allow_html=True)
 

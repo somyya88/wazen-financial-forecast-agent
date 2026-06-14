@@ -593,6 +593,90 @@ def apply_theme():
     .cfo-brief-pro .focus { color:#17479E; font-weight:900; }
 
 
+    /* V13.9 AI executive diagnosis */
+    .ai-cfo-diagnosis {
+        direction: rtl;
+        text-align: right;
+        background: linear-gradient(135deg, #FFFFFF 0%, #F7FAFF 100%);
+        border: 1px solid #D9E6F8;
+        border-right: 7px solid #17479E;
+        border-radius: 26px;
+        padding: 26px 30px;
+        margin: 18px 0 28px;
+        box-shadow: 0 24px 64px rgba(23,71,158,.11);
+    }
+    .ai-cfo-source {
+        display: inline-flex;
+        align-items: center;
+        background: #EFF6FF;
+        color: #17479E;
+        border: 1px solid #C7D7FE;
+        border-radius: 999px;
+        padding: 5px 12px;
+        font-size: 12.5px;
+        font-weight: 900;
+        margin-bottom: 12px;
+    }
+    .ai-cfo-diagnosis h3 {
+        color: #0B2E63 !important;
+        font-size: 28px;
+        font-weight: 950;
+        line-height: 1.45;
+        margin: 0 0 12px;
+    }
+    .ai-cfo-main {
+        font-size: 17px;
+        line-height: 2.05;
+        margin: 8px 0 20px;
+        color: #1F2937;
+        font-weight: 650;
+    }
+    .ai-cfo-main.danger { color:#B42318; }
+    .ai-cfo-main.focus { color:#0B2E63; }
+    .ai-cfo-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 14px;
+    }
+    .ai-cfo-box, .ai-cfo-actions {
+        background: #FFFFFF;
+        border: 1px solid #E4EAF5;
+        border-radius: 18px;
+        padding: 16px 18px;
+        box-shadow: 0 10px 26px rgba(16,24,40,.045);
+    }
+    .ai-cfo-box h4, .ai-cfo-actions h4 {
+        color: #17479E;
+        font-size: 16px;
+        font-weight: 950;
+        margin: 0 0 8px;
+    }
+    .ai-cfo-box p, .ai-cfo-box li, .ai-cfo-actions li {
+        color: #1F2937;
+        font-size: 14.5px;
+        line-height: 1.9;
+    }
+    .ai-cfo-box ul, .ai-cfo-actions ul {
+        margin: 0;
+        padding-right: 18px;
+    }
+    .ai-cfo-actions {
+        margin-top: 14px;
+        border-right: 5px solid #FAA61A;
+        background: #FFFCF5;
+    }
+    .ai-cfo-note {
+        color: #667085;
+        font-size: 13px;
+        line-height: 1.8;
+        margin-top: 12px;
+    }
+    @media (max-width: 900px) {
+        .ai-cfo-grid { grid-template-columns: 1fr; }
+    }
+
+
     /* V12.8 decision-first UX */
     .v128-sector-panel {
         background: radial-gradient(circle at 4% 10%, rgba(250,166,26,.16), transparent 24%),
