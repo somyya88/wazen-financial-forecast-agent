@@ -26,13 +26,16 @@ def build_pnl(revenue_model, expense_model, tb_model=None):
             "gross_profit": tb_income.get("gross_profit", 0),
             "opex": tb_income.get("operating_expenses", 0),
             "ebitda": tb_income.get("ebitda", 0),
-            "depreciation": 0,
-            "ebit": tb_income.get("ebitda", 0),
-            "finance_costs": 0,
+            "depreciation": tb_income.get("depreciation", 0),
+            "ebit": tb_income.get("ebit", tb_income.get("ebitda", 0)),
+            "finance_costs": tb_income.get("finance_costs", 0),
+            "profit_before_tax": tb_income.get("profit_before_tax", tb_income.get("net_profit", 0)),
+            "tax_zakat": tb_income.get("tax_zakat", 0),
             "net_profit": tb_income.get("net_profit", 0),
-            "total_expenses": tb_income.get("cogs", 0) + tb_income.get("operating_expenses", 0),
+            "total_expenses": tb_income.get("cogs", 0) + tb_income.get("operating_expenses", 0) + tb_income.get("depreciation", 0) + tb_income.get("finance_costs", 0) + tb_income.get("tax_zakat", 0),
+            "cogs_basis": "trial_balance_periodic_inventory_or_direct_cost",
             "source": "trial_balance",
-            "note": "قائمة الدخل مبنية من ميزان المراجعة كمصدر أساسي. ملفات المبيعات والمصاريف الشهرية تستخدم للتحليل والتوزيع، وليست شرطًا لبناء القوائم."
+            "note": "قائمة الدخل مبنية من ميزان المراجعة كمصدر حقيقة. V13.4 يفصل EBITDA/EBIT/تكاليف التمويل/الزكاة والضريبة عند توفرها."
         }
 
     # Fallback / hybrid: use sales and expense files, and use TB costs/expenses if expense file is missing.
@@ -66,6 +69,8 @@ def build_pnl(revenue_model, expense_model, tb_model=None):
         ["Depreciation", "الإهلاك", depreciation],
         ["EBIT", "الربح التشغيلي", ebit],
         ["Finance Costs", "تكاليف التمويل", finance_costs],
+        ["Profit Before Tax/Zakat", "الربح قبل الزكاة/الضريبة", net_profit],
+        ["Tax / Zakat", "الزكاة والضريبة", 0],
         ["Net Profit", "صافي الربح", net_profit],
     ], columns=["English", "العربي", "Amount"])
 
@@ -79,8 +84,11 @@ def build_pnl(revenue_model, expense_model, tb_model=None):
         "depreciation": depreciation,
         "ebit": ebit,
         "finance_costs": finance_costs,
+        "profit_before_tax": net_profit,
+        "tax_zakat": 0,
         "net_profit": net_profit,
         "total_expenses": total_expenses,
+        "cogs_basis": "analytical_expense_files",
         "source": "hybrid_or_analytical_files",
         "note": "تم بناء قائمة الدخل من أفضل الملفات المتاحة: المبيعات عند توفرها، والمصاريف/ميزان المراجعة للتكاليف. هذا وضع مرن لا يوقف التحليل عند نقص ملف تفصيلي."
     }

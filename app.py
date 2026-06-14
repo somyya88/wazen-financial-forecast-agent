@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 
 from config import APP_NAME, SOURCE_ROLES, REVENUE_DEFINITIONS
+from cfo_core_v13_4 import infer_period_context, build_source_of_truth_report
 from data_reader import read_excel_file
 from file_detector import detect_file_type
 from source_roles import suggest_role
@@ -1078,9 +1079,18 @@ def build_models_from_session(revenue_definition: str | None = None):
     forecast_model, forecast_note = build_forecast(monthly_pnl_model)
     glossary_model = build_glossary()
     liquidity_model = build_liquidity_collections_model(st.session_state.files)
+
+    # V13.4: build one shared business/period context instead of hard-coding 150 days
+    # inside ratio engines. This makes DSO/DPO/DIO and scenario outputs auditable.
+    profile_context = refresh_business_profile()
+    period_context = infer_period_context(confirmed_months, profile_context, tb_model)
+    profile_context.update(period_context)
+
     comprehensive_model = build_comprehensive_financial_analysis(
-        tb_model, pnl_model, expense_model, revenue_model, monthly_pnl_model, liquidity_model, refresh_business_profile(), breakeven_model, st.session_state.get("ai_narrative_enabled", False)
+        tb_model, pnl_model, expense_model, revenue_model, monthly_pnl_model, liquidity_model, profile_context, breakeven_model, st.session_state.get("ai_narrative_enabled", False)
     )
+    source_truth_report = build_source_of_truth_report(tb_model, revenue_model, expense_model, pnl_model, confirmed_months, profile_context)
+    comprehensive_model["source_of_truth_report"] = source_truth_report
 
     st.session_state.models = {
         "revenue_model": revenue_model,
@@ -1108,6 +1118,8 @@ def build_models_from_session(revenue_definition: str | None = None):
         "expense_mapping": st.session_state.expense_mapping,
         "revenue_definition": revenue_definition,
         "comprehensive_model": comprehensive_model,
+        "source_truth_report": source_truth_report,
+        "period_context": period_context,
     }
     st.session_state.liquidity_model = liquidity_model
     st.session_state.model_ready = True
@@ -1136,11 +1148,11 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V13.3</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V13.4</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("## Wazen V13")
+    st.markdown("## Wazen V13.4")
     st.caption("Financial Health & Action Intelligence")
     if st.session_state.get("nav_page") not in PAGE_OPTIONS:
         st.session_state.nav_page = PAGE_OPTIONS[0]
@@ -1156,7 +1168,7 @@ with st.sidebar:
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
     st.checkbox("تفعيل صياغة AI للملخص التنفيذي إذا كان المفتاح متاحًا", key="ai_narrative_enabled", value=st.session_state.get("ai_narrative_enabled", False))
-    st.caption("V13.3: Decision Cards + Vertical/Horizontal Experience")
+    st.caption("V13.4: Source of Truth + Mapping Guard + Period Context")
 
 
 # -----------------------------------------------------------------------------
@@ -1308,7 +1320,8 @@ elif page == "2. رفع الملفات والمطابقة":
             # Classification is generated once per file signature, then user edits remain as a draft until saved.
             if st.session_state.mapping_signature != current_signature or st.session_state.expense_mapping is None:
                 with st.spinner("تصنيف الحسابات لأول مرة حسب القطاع..."):
-                    initial_mapping = apply_smart_classification(base_mapping, sector_context=industry, use_openai=True)
+                    # V13.4 privacy guard: no account names are sent to an external AI unless the user explicitly enables AI mode.
+                    initial_mapping = apply_smart_classification(base_mapping, sector_context=industry, use_openai=st.session_state.get("ai_narrative_enabled", False))
                 st.session_state.expense_mapping = initial_mapping.copy()
                 # Auto classification is accepted as a starting point; user edits can be applied later.
                 st.session_state.expense_mapping_saved = True
@@ -1696,11 +1709,14 @@ elif page == "8. التصدير":
             glossary_model=models.get("glossary_model"),
             confirmed_months=models.get("confirmed_months", []),
             expense_mapping=models.get("expense_mapping", pd.DataFrame()),
+            tb_model=models.get("tb_model"),
+            source_truth_report=models.get("source_truth_report"),
+            comprehensive_model=models.get("comprehensive_model"),
         )
         st.download_button(
             "تحميل Excel CFO Pack",
             data=excel_bytes,
-            file_name="wazen_cfo_pack_v12.xlsx",
+            file_name="wazen_cfo_pack_v13_4.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         st.info("سيتم لاحقًا إضافة PDF Executive Summary بنفس مسار التشخيص والتنبيهات.")

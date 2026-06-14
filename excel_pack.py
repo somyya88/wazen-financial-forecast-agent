@@ -14,8 +14,13 @@ def build_excel_pack(
     glossary_model=None,
     confirmed_months=None,
     expense_mapping=None,
+    tb_model=None,
+    source_truth_report=None,
+    comprehensive_model=None,
 ) -> bytes:
     output = BytesIO()
+    financial_model = financial_model or {}
+    validation_checks = validation_checks or []
     pnl_model = pnl_model or {}
     ratio_model = ratio_model or {}
     breakeven_model = breakeven_model or {}
@@ -23,6 +28,9 @@ def build_excel_pack(
     glossary_model = glossary_model if glossary_model is not None else pd.DataFrame()
     confirmed_months = confirmed_months or []
     expense_mapping = expense_mapping if expense_mapping is not None else pd.DataFrame()
+    tb_model = tb_model or {}
+    source_truth_report = source_truth_report or {}
+    comprehensive_model = comprehensive_model or {}
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         workbook = writer.book
@@ -50,6 +58,9 @@ def build_excel_pack(
             ["Financial Health Score", ratio_model.get("financial_health_score", 0)],
             ["Biggest Risk", ratio_model.get("biggest_risk", "")],
             ["Next Decision", ratio_model.get("next_decision", "")],
+            ["Period Days / أيام الفترة", (source_truth_report.get("period") or {}).get("period_days", "")],
+            ["Period Basis / أساس الفترة", (source_truth_report.get("period") or {}).get("period_basis", "")],
+            ["Source of Truth Issues / ملاحظات التدقيق", " | ".join(source_truth_report.get("issues", []) or [])],
         ], columns=["Metric", "Value"])
         summary.to_excel(writer, sheet_name="Executive Summary", index=False)
         ws = writer.sheets["Executive Summary"]
@@ -105,6 +116,24 @@ def build_excel_pack(
         # Glossary
         if not glossary_model.empty:
             glossary_model.to_excel(writer, sheet_name="Glossary", index=False)
+
+        # V13.4 Audit Trail / Source of Truth
+        sot = source_truth_report.get("source_of_truth", pd.DataFrame())
+        if isinstance(sot, pd.DataFrame) and not sot.empty:
+            sot.to_excel(writer, sheet_name="Source of Truth", index=False)
+
+        account_mapping_audit = source_truth_report.get("account_mapping_audit", pd.DataFrame())
+        if isinstance(account_mapping_audit, pd.DataFrame) and not account_mapping_audit.empty:
+            account_mapping_audit.to_excel(writer, sheet_name="Account Mapping Audit", index=False)
+
+        raw_tb = tb_model.get("tb", pd.DataFrame()) if isinstance(tb_model, dict) else pd.DataFrame()
+        if isinstance(raw_tb, pd.DataFrame) and not raw_tb.empty:
+            cols = [c for c in ["account_code", "account_code_norm", "account_name", "begin_debit", "begin_credit", "debit", "credit", "current_debit", "current_credit", "category"] if c in raw_tb.columns]
+            raw_tb[cols].to_excel(writer, sheet_name="TB Normalized", index=False)
+
+        comp_ratios = comprehensive_model.get("ratios", pd.DataFrame()) if isinstance(comprehensive_model, dict) else pd.DataFrame()
+        if isinstance(comp_ratios, pd.DataFrame) and not comp_ratios.empty:
+            comp_ratios.to_excel(writer, sheet_name="CFO Ratios Guarded", index=False)
 
         # Basic formatting
         for sheet_name, worksheet in writer.sheets.items():

@@ -254,7 +254,7 @@ def build_metric_pack(pnl_model: dict, management_pnl: dict, balance_model: dict
     equity = _num(b.get("equity"))
     working_capital = _num(b.get("working_capital"), current_assets - current_liabilities)
 
-    period_days = float(profile.get("period_days") or 150.0)
+    period_days = float(profile.get("period_days") or 365.25)
     daily_revenue = revenue / period_days if revenue else 0
     daily_cogs = cogs / period_days if cogs else 0
     # Do not display 0 days as a valid DSO/DPO/CCC when no AR/AP/Inventory balance exists.

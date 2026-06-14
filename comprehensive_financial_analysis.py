@@ -455,7 +455,9 @@ def build_ratio_scorecard(pnl_model: dict, balance_model: dict, liquidity_model:
     runway = cash_cards.get("cash_runway_months")
     runway = None if runway is None else _num(runway)
 
-    period_days = 150.0  # Default for Jan-May. Later this can come from selected months precisely.
+    period_days = float((sector if isinstance(sector, dict) else {}).get("period_days", 0) or 0) if isinstance(sector, dict) else 0
+    if not period_days:
+        period_days = 365.25  # V13.4: safe annualized fallback; app injects actual selected-month days when available.
     dso = _safe_div(ar, revenue / period_days) if revenue else None
     dpo = _safe_div(ap, cogs / period_days) if cogs else None
 

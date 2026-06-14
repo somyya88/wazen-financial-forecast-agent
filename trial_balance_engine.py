@@ -200,22 +200,47 @@ def build_income_statement_from_trial_balance(tb_model: dict) -> dict:
     cogs = opening_inventory + net_purchases - ending_inventory
     cogs = max(0.0, cogs)
 
-    # 3) Operating expenses.
-    operating_expenses = _explicit_amount(work, ["المصروفات", "إجمالي المصروفات", "Total Expenses"], natural="debit")
-    if operating_expenses is None or operating_expenses == 0:
-        operating_expenses = _leaf_sum_by_code(work, ["5"], natural="debit")
-    if operating_expenses == 0:
-        operating_expenses = _sum_by_account_keywords(
+    # 3) Expenses split. V13.4 separates operating expenses from depreciation,
+    # finance costs, and tax/zakat. The previous implementation treated all
+    # expenses as operating, making EBITDA equal to net profit in some cases.
+    total_expenses_read = _explicit_amount(work, ["المصروفات", "إجمالي المصروفات", "Total Expenses"], natural="debit")
+    if total_expenses_read is None or total_expenses_read == 0:
+        total_expenses_read = _leaf_sum_by_code(work, ["5"], natural="debit")
+    if total_expenses_read == 0:
+        total_expenses_read = _sum_by_account_keywords(
             work,
-            include=["مصروف", "مصاريف", "راتب", "رواتب", "ايجار", "إيجار", "أتعاب", "اتعاب", "عمولة", "عمولات", "تسويق", "دعاية", "بدل"],
+            include=["مصروف", "مصاريف", "راتب", "رواتب", "ايجار", "إيجار", "أتعاب", "اتعاب", "عمولة", "عمولات", "تسويق", "دعاية", "بدل", "اهلاك", "فوائد", "تمويل", "زكاة", "ضريبة"],
             natural="debit",
             exclude=["تكلفة المبيعات", "تكلفة الإيراد", "تكلفة الايراد"],
         )
 
+    depreciation = _sum_by_account_keywords(
+        work,
+        include=["اهلاك", "إهلاك", "استهلاك", "depreciation", "amortization"],
+        natural="debit",
+        exclude=[],
+    )
+    finance_costs = _sum_by_account_keywords(
+        work,
+        include=["فوائد", "تمويل", "تكاليف تمويل", "مصروف تمويل", "رسوم بنكية", "bank charges", "interest", "finance cost"],
+        natural="debit",
+        exclude=[],
+    )
+    tax_zakat = _sum_by_account_keywords(
+        work,
+        include=["زكاة", "زكاه", "ضريبة", "ضريبه", "tax", "zakat"],
+        natural="debit",
+        exclude=["القيمة المضافة للمبيعات", "ضريبة القيمة المضافة للمبيعات"],
+    )
+
+    operating_expenses = max(0.0, float(total_expenses_read or 0) - depreciation - finance_costs - tax_zakat)
+
     total_revenue = float(net_sales or 0) + float(other_revenue or 0)
     gross_profit = total_revenue - cogs
     ebitda = gross_profit - operating_expenses
-    net_profit = ebitda
+    ebit = ebitda - depreciation
+    profit_before_tax = ebit - finance_costs
+    net_profit = profit_before_tax - tax_zakat
 
     available = _has_income_statement_signal(work) and (abs(total_revenue) + abs(operating_expenses) + abs(cogs) > 0)
 
@@ -229,6 +254,12 @@ def build_income_statement_from_trial_balance(tb_model: dict) -> dict:
         ["COGS", "تكلفة المبيعات", cogs],
         ["Gross Profit", "مجمل الربح", gross_profit],
         ["Operating Expenses", "المصروفات التشغيلية", operating_expenses],
+        ["EBITDA", "الربح قبل الإهلاك والتمويل والزكاة/الضريبة", ebitda],
+        ["Depreciation & Amortization", "الإهلاك والاستهلاك", depreciation],
+        ["EBIT", "الربح التشغيلي بعد الإهلاك", ebit],
+        ["Finance Costs", "تكاليف التمويل", finance_costs],
+        ["Profit Before Tax/Zakat", "الربح قبل الزكاة/الضريبة", profit_before_tax],
+        ["Tax / Zakat", "الزكاة والضريبة", tax_zakat],
         ["Net Profit", "صافي الربح", net_profit],
     ], columns=["English", "العربي", "Amount"])
 
@@ -252,7 +283,13 @@ def build_income_statement_from_trial_balance(tb_model: dict) -> dict:
         "cogs": float(cogs or 0),
         "gross_profit": float(gross_profit or 0),
         "operating_expenses": float(operating_expenses or 0),
+        "total_expenses_read": float(total_expenses_read or 0),
         "ebitda": float(ebitda or 0),
+        "depreciation": float(depreciation or 0),
+        "ebit": float(ebit or 0),
+        "finance_costs": float(finance_costs or 0),
+        "profit_before_tax": float(profit_before_tax or 0),
+        "tax_zakat": float(tax_zakat or 0),
         "net_profit": float(net_profit or 0),
         "notes": notes,
     }
@@ -305,6 +342,12 @@ def parse_trial_balance(file_record: dict) -> dict:
         "ending_inventory": income_statement.get("ending_inventory"),
         "cogs": income_statement.get("cogs"),
         "operating_expenses": income_statement.get("operating_expenses"),
+        "ebitda": income_statement.get("ebitda"),
+        "depreciation": income_statement.get("depreciation"),
+        "ebit": income_statement.get("ebit"),
+        "finance_costs": income_statement.get("finance_costs"),
+        "profit_before_tax": income_statement.get("profit_before_tax"),
+        "tax_zakat": income_statement.get("tax_zakat"),
         "net_profit": income_statement.get("net_profit"),
         "net_sales_basis": "ميزان المراجعة / صافي المبيعات",
         "net_purchases_basis": "ميزان المراجعة / صافي المشتريات",
