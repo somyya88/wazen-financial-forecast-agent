@@ -543,6 +543,89 @@ def _tone_from_status(status: str) -> str:
     return 'ok'
 
 
+
+
+def _decision_tone_from_status(status: str) -> str:
+    """Map Arabic decision status to the CSS tone used by decision cards."""
+    text = str(status or '')
+    if any(k in text for k in ['خطر', 'خسارة', 'خاسر', 'ضعيف', 'خارج', 'مرتفع جداً']):
+        return 'danger'
+    if any(k in text for k in ['مراقبة', 'تحتاج', 'غير', 'مبدئي', 'متوسط', 'محدود']):
+        return 'warning'
+    return 'ok'
+
+
+def _basis_for_decision(metric_key: str, value, profile: dict | None = None) -> dict:
+    """Return an auditable status/benchmark basis for executive decision cards.
+
+    This function was referenced by the V14 decision dashboard but was missing from
+    the packaged app, causing a NameError on the decision indicators tab.
+    """
+    profile = profile or {}
+    sector = profile.get('sector') or profile.get('القطاع') or 'خدمي'
+    cfg = get_sector_config(sector)
+    benchmarks = (cfg or {}).get('benchmarks', {}) if isinstance(cfg, dict) else {}
+
+    # Metric-specific thresholds. Values are decimal ratios, not percentages.
+    defaults = {
+        'operating_margin': {'safe': 0.05, 'watch': 0.00, 'label': 'هامش التشغيل', 'direction': 'higher'},
+        'current_ratio': {'safe': 1.50, 'watch': 1.00, 'label': 'نسبة التداول', 'direction': 'higher'},
+        'quick_ratio': {'safe': 1.00, 'watch': 0.60, 'label': 'النسبة السريعة', 'direction': 'higher'},
+        'cash_ratio': {'safe': 0.50, 'watch': 0.20, 'label': 'نسبة النقدية', 'direction': 'higher'},
+        'debt_ratio': {'safe': 0.50, 'watch': 0.75, 'label': 'الالتزامات إلى الأصول', 'direction': 'lower'},
+        'debt_to_equity': {'safe': 1.00, 'watch': 2.00, 'label': 'الالتزامات إلى حقوق الملكية', 'direction': 'lower'},
+    }
+
+    b = benchmarks.get(metric_key)
+    if b:
+        direction = 'lower' if metric_key in ['opex_ratio', 'direct_cost_ratio', 'return_rate', 'discount_rate', 'cogs_ratio'] else 'higher'
+        label = b.get('label') or metric_key
+        safe = b.get('safe')
+        watch = b.get('watch')
+        source = f"معيار قطاعي إرشادي داخلي — {sector}"
+    else:
+        d = defaults.get(metric_key, {'safe': None, 'watch': None, 'label': metric_key, 'direction': 'higher'})
+        direction = d.get('direction', 'higher')
+        label = d.get('label', metric_key)
+        safe = d.get('safe')
+        watch = d.get('watch')
+        source = 'قاعدة مالية إرشادية عامة'
+
+    n = _as_number(value, None)
+    if n is None or safe is None or watch is None:
+        return {
+            'status': 'غير متاح',
+            'benchmark': 'لا يوجد معيار رقمي مدمج',
+            'basis': source,
+            'label': label,
+        }
+
+    if direction == 'lower':
+        # For lower-better ratios: <= safe is good, <= watch needs monitoring, > watch is risky.
+        if n <= safe:
+            status = 'ضمن الأمان'
+        elif n <= watch:
+            status = 'تحت المراقبة'
+        else:
+            status = 'خطر'
+        benchmark = f"آمن ≤ {safe:.1%} | مراقبة ≤ {watch:.1%}" if abs(safe) <= 3 and abs(watch) <= 3 else f"آمن ≤ {safe:,.2f} | مراقبة ≤ {watch:,.2f}"
+    else:
+        # For higher-better ratios: >= safe is good, >= watch needs monitoring, < watch is risky.
+        if n >= safe:
+            status = 'ضمن الأمان'
+        elif n >= watch:
+            status = 'تحت المراقبة'
+        else:
+            status = 'خطر'
+        benchmark = f"آمن ≥ {safe:.1%} | مراقبة ≥ {watch:.1%}" if abs(safe) <= 3 and abs(watch) <= 3 and metric_key not in ['current_ratio','quick_ratio','cash_ratio'] else f"آمن ≥ {safe:,.2f}x | مراقبة ≥ {watch:,.2f}x"
+
+    return {
+        'status': status,
+        'benchmark': benchmark,
+        'basis': source,
+        'label': label,
+    }
+
 def _html_escape(text):
     return str(text or '').replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
 
