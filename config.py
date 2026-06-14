@@ -1,11 +1,11 @@
 """Global configuration for Wazen CFO Intelligence Agent.
 
-V13.5 hardens the app so UI constants live in one place instead of being
+V13.8 hardens the app so UI constants live in one place instead of being
 implicitly expected by app.py. Keep this file small and deterministic.
 """
 
-APP_NAME = "Wazen CFO Intelligence Agent V13.7"
-APP_VERSION = "13.7"
+APP_NAME = "Wazen CFO Intelligence Agent V13.8"
+APP_VERSION = "13.8"
 DEFAULT_CURRENCY = "SAR"
 
 # Wazen brand/theme constants used by theme.py and UI components.

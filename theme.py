@@ -772,7 +772,7 @@ def apply_theme():
 
     /* V13.7 hover decision rationale and refined vertical/horizontal UX */
     .v137-hover-card { overflow: visible !important; cursor: help; }
-    .v137-hover-hint {
+    .v137-hover-hint { display:none !important;
         position:absolute; top:12px; left:14px; z-index:3;
         background:#F3F7FF; color:#17479E; border:1px solid #C8D8F5;
         border-radius:999px; padding:5px 10px; font-size:12px; font-weight:900;
@@ -811,9 +811,37 @@ def apply_theme():
     .v137-story-card em { line-height:1.7; font-weight:700; }
 
     @media(max-width: 1200px){
-        .v137-hover-hint { position:static; display:inline-block; margin-bottom:10px; }
+        .v137-hover-hint { display:none !important; }
         .v137-decision-tooltip { left:10px; right:10px; width:auto; }
     }
+
+    /* V13.8 clean hover tooltip and inline trend badges */
+    .v138-decision-card { position:relative; overflow:visible !important; }
+    .v138-info-dot {
+        position:absolute; top:14px; left:16px; width:26px; height:26px; border-radius:999px;
+        display:flex; align-items:center; justify-content:center;
+        background:#F3F7FF; color:#17479E; border:1px solid #C8D8F5;
+        font-weight:950; font-size:13px; z-index:3;
+    }
+    .v138-decision-card::after {
+        content:attr(data-tip); white-space:pre-line;
+        opacity:0; visibility:hidden; pointer-events:none;
+        position:absolute; top:46px; left:16px; z-index:1000;
+        width:min(440px, calc(100% - 32px));
+        background:#0B2E63; color:#fff; border-radius:18px; padding:14px 16px;
+        box-shadow:0 24px 70px rgba(11,46,99,.30);
+        font-size:13.5px; line-height:1.8; text-align:right; direction:rtl;
+        transform:translateY(8px); transition:all .18s ease;
+    }
+    .v138-decision-card:hover::after { opacity:1; visibility:visible; transform:translateY(0); }
+    .v138-trend {
+        display:inline-flex; align-items:center; gap:5px; border-radius:999px;
+        padding:5px 10px; font-size:12px; font-weight:950; white-space:nowrap; direction:ltr;
+    }
+    .v138-trend.ok { background:#ECFDF3; color:#067647; border:1px solid #ABEFC6; }
+    .v138-trend.danger { background:#FEF3F2; color:#B42318; border:1px solid #FECDCA; }
+    .v138-trend.neutral { background:#F2F4F7; color:#475467; border:1px solid #EAECF0; }
+
 </style>
     """
     st.markdown(css, unsafe_allow_html=True)

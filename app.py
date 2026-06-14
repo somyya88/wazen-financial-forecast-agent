@@ -446,18 +446,15 @@ def _enrich_ratios_with_benchmarks(df: pd.DataFrame, full_model: dict | None = N
 def _trend_badge_from_value(value) -> str:
     txt = str(value or '').strip()
     if txt in ['', '—', '-', 'nan', 'None']:
-        return '—'
+        return '<span class="v138-trend neutral">▬ —</span>'
     n = _as_number(txt, None)
     if n is None:
-        return '—'
-    # If the value came as 12.0 after stripping %, it means 12%, not 1200%.
-    if '%' in txt:
-        pass
+        return _html_escape(txt)
+    if abs(n) < 1e-9:
+        return f'<span class="v138-trend neutral">▬ {txt}</span>'
     if n > 0:
-        return '▲ ارتفاع'
-    if n < 0:
-        return '▼ انخفاض'
-    return '▬ ثابت'
+        return f'<span class="v138-trend ok">▲ {txt}</span>'
+    return f'<span class="v138-trend danger">▼ {txt}</span>'
 
 
 def _add_trend_indicator(df: pd.DataFrame) -> pd.DataFrame:
@@ -465,8 +462,10 @@ def _add_trend_indicator(df: pd.DataFrame) -> pd.DataFrame:
         return df
     out = df.copy()
     trend_cols = [c for c in out.columns if any(k in str(c) for k in ['نمو', 'تغير', 'نسبة التغير'])]
-    if trend_cols and 'مؤشر الاتجاه' not in out.columns:
-        out.insert(0, 'مؤشر الاتجاه', out[trend_cols[-1]].apply(_trend_badge_from_value))
+    for col in trend_cols:
+        out[col] = out[col].apply(_trend_badge_from_value)
+    if 'مؤشر الاتجاه' in out.columns:
+        out = out.drop(columns=['مؤشر الاتجاه'])
     return out
 
 
@@ -539,6 +538,12 @@ def _html_escape(text):
     return str(text or '').replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
 
 
+def _html_attr_escape(text):
+    return _html_escape(text).replace('\"', '&quot;').replace("'", '&#39;').replace('\n', '&#10;')
+
+
+def _plain_tip(*parts):
+    return '\n'.join([str(x).strip() for x in parts if str(x or '').strip()])
 
 def _fmt_cell(value):
     n = _as_number(value, None)
@@ -589,7 +594,7 @@ def _render_lux_table(df: pd.DataFrame, columns: list[str] | None = None, max_ro
             val = r.get(col, '')
             txt = _fmt_cell(val)
             cls = ''
-            if str(col) in ['الحكم', 'درجة الثقة', 'حالة المؤشر', 'حالة القراءة', 'مستوى الخطورة', 'مقارنة بالمعيار', 'مؤشر الاتجاه']:
+            if str(col) in ['الحكم', 'درجة الثقة', 'حالة المؤشر', 'حالة القراءة', 'مستوى الخطورة', 'مقارنة بالمعيار']:
                 txt = _badge(txt)
                 cls = ' class="tag-cell"'
             tds.append(f'<td{cls}>{txt}</td>')
@@ -694,11 +699,24 @@ def _trend_from_numbers(current, previous, inverse: bool = False) -> str:
     c = _as_number(current, 0.0) or 0.0
     p = _as_number(previous, 0.0) or 0.0
     if abs(c - p) < 1e-9:
-        return '▬ ثابت'
+        return 'ثابت'
     up = c > p
     if inverse:
-        return '▲ ارتفاع غير مرغوب' if up else '▼ انخفاض إيجابي'
-    return '▲ ارتفاع' if up else '▼ انخفاض'
+        return 'ارتفاع يحتاج متابعة' if up else 'انخفاض إيجابي'
+    return 'ارتفاع' if up else 'انخفاض'
+
+
+def _change_badge(pct, current=None, previous=None, inverse: bool = False):
+    n = _as_number(pct, None)
+    if n is None:
+        return '<span class="v138-trend neutral">▬ —</span>'
+    if abs(n) < 0.0005:
+        return '<span class="v138-trend neutral">▬ ثابت</span>'
+    up = n > 0
+    good = (not inverse and up) or (inverse and not up)
+    tone = 'ok' if good else 'danger'
+    arrow = '▲' if up else '▼'
+    return f'<span class="v138-trend {tone}">{arrow} {n*100:.1f}%</span>'
 
 
 def _build_prior_tb_comparison(current_tb_model: dict | None, previous_tb_model: dict | None, current_label: str = 'الفترة الحالية', previous_label: str = 'الفترة السابقة') -> dict:
@@ -728,8 +746,7 @@ def _build_prior_tb_comparison(current_tb_model: dict | None, previous_tb_model:
             previous_label: prev,
             current_label: cur,
             'التغير': ch,
-            'نسبة التغير': _fmt_change_pct(pct),
-            'مؤشر الاتجاه': _trend_from_numbers(cur, prev, inverse=inverse),
+            'نسبة التغير': _change_badge(pct, cur, prev, inverse=inverse),
         })
     income_df = pd.DataFrame(income_rows)
 
@@ -758,9 +775,8 @@ def _build_prior_tb_comparison(current_tb_model: dict | None, previous_tb_model:
         merged[current_label] = pd.to_numeric(merged[current_label], errors='coerce').fillna(0)
         merged[previous_label] = pd.to_numeric(merged[previous_label], errors='coerce').fillna(0)
         merged['التغير'] = merged[current_label] - merged[previous_label]
-        merged['نسبة التغير'] = merged.apply(lambda r: _fmt_change_pct(_pct_change(r[current_label], r[previous_label])), axis=1)
-        merged['مؤشر الاتجاه'] = merged.apply(lambda r: _trend_from_numbers(r[current_label], r[previous_label]), axis=1)
-        balance_df = merged.reindex(merged['التغير'].abs().sort_values(ascending=False).index).head(25)[['الحساب','التصنيف', previous_label, current_label, 'التغير','نسبة التغير','مؤشر الاتجاه']]
+        merged['نسبة التغير'] = merged.apply(lambda r: _change_badge(_pct_change(r[current_label], r[previous_label]), r[current_label], r[previous_label]), axis=1)
+        balance_df = merged.reindex(merged['التغير'].abs().sort_values(ascending=False).index).head(25)[['الحساب','التصنيف', previous_label, current_label, 'التغير','نسبة التغير']]
 
     summary = {
         'revenue_change_pct': _pct_change(cur_income.get('Total Revenue', 0), prev_income.get('Total Revenue', 0)),
@@ -774,21 +790,19 @@ def _build_prior_tb_comparison(current_tb_model: dict | None, previous_tb_model:
 
 
 def _decision_card(icon: str, title: str, verdict: str, evidence: str, action: str, tone: str = 'warning', benchmark: str = '', basis: str = ''):
-    """Decision card with hover rationale.
-    Visible layer stays executive; calculation basis appears as a hover tooltip.
+    """Decision card with a clean CSS hover tooltip.
+    The tooltip is plain text in a data attribute to avoid raw HTML appearing in Streamlit.
     """
-    tooltip = f"""
-        <div class="v137-decision-tooltip">
-            <div class="v137-tooltip-title">كيف صدر هذا الحكم؟</div>
-            <div><strong>الدليل المستخدم:</strong> {_html_escape(evidence)}</div>
-            <div><strong>معيار المقارنة:</strong> {_html_escape(benchmark or 'لا يوجد معيار مدمج لهذا البند')}</div>
-            <div><strong>مصدر المعيار:</strong> {_html_escape(basis or 'منطق مالي داخلي')}</div>
-            <div><strong>الإجراء المقترح:</strong> {_html_escape(action)}</div>
-        </div>
-    """
+    tip = _plain_tip(
+        "كيف صدر هذا الحكم؟",
+        f"الدليل المستخدم: {evidence}",
+        f"معيار المقارنة: {benchmark or 'لا يوجد معيار رقمي مدمج لهذا البند'}",
+        f"مصدر المعيار: {basis or 'منطق مالي داخلي'}",
+        f"الإجراء المقترح: {action}",
+    )
     st.markdown(f"""
-    <div class="v131-decision-card {tone} v137-hover-card">
-        <div class="v137-hover-hint">ⓘ مرّر المؤشر لرؤية معيار الحكم</div>
+    <div class="v131-decision-card {tone} v138-decision-card" data-tip="{_html_attr_escape(tip)}">
+        <div class="v138-info-dot">i</div>
         <div class="v131-decision-icon">{_html_escape(icon)}</div>
         <div class="v131-decision-body">
             <div class="v131-decision-title">{_html_escape(title)}</div>
@@ -796,7 +810,6 @@ def _decision_card(icon: str, title: str, verdict: str, evidence: str, action: s
             <div class="v131-decision-evidence"><strong>الدليل:</strong> {_html_escape(evidence)}</div>
             <div class="v131-decision-action"><strong>الإجراء:</strong> {_html_escape(action)}</div>
         </div>
-        {tooltip}
     </div>
     """, unsafe_allow_html=True)
 
@@ -1045,7 +1058,7 @@ def _pretty_ratio_table(guarded_df: pd.DataFrame, group: str | None = None, max_
 
 
 def render_ratio_decision_dashboard(ratio_df: pd.DataFrame, health: dict | None = None, findings_df: pd.DataFrame | None = None):
-    st.caption("لوحة قرار تنفيذية. كل بطاقة تعتمد على رقم محدد ومعيار محدد؛ مرّر مؤشر الماوس فوق البطاقة لعرض منطق الحكم مباشرة.")
+    st.caption("لوحة قرار تنفيذية. كل بطاقة تستند إلى رقم محدد ومعيار مقارنة واضح، وتعرض الحكم التنفيذي دون إغراق المستخدم بالجداول.")
     profile = refresh_business_profile()
     full_model = st.session_state.models.get("comprehensive_model", {}) if st.session_state.get("models") else {}
     guarded_df = build_metric_guard_report(ratio_df, full_model.get("metric_pack", {}), profile, st.session_state.files, full_model)
@@ -1063,7 +1076,7 @@ def render_ratio_decision_dashboard(ratio_df: pd.DataFrame, health: dict | None 
         _summary_tile('🧠', 'ثقة التشخيص', layers['diagnosis'], layers['diagnosis_note'], 'ok' if layers['diagnosis']=='مرتفعة' else 'warning')
 
     st.markdown("#### بطاقات القرار")
-    st.caption("الحكم المختصر ظاهر على البطاقة، أما المعيار وطريقة الاحتساب فتظهر مباشرة عند تمرير مؤشر الماوس فوق البطاقة.")
+    st.caption("كل بطاقة تعرض الحكم والدليل والإجراء. تفاصيل معيار الحكم تظهر كتلميح مباشر عند الاقتراب من البطاقة.")
     cols = st.columns(2)
     for i, d in enumerate(decisions):
         with cols[i % 2]:
@@ -1120,6 +1133,29 @@ def _comparison_story_card(title: str, value: str, note: str, tone: str = 'neutr
     """, unsafe_allow_html=True)
 
 
+def _expense_ratio_from_model(full_model: dict):
+    mgmt = full_model.get("management_pnl", {}) or {}
+    revenue = _as_number(mgmt.get("revenue"), 0.0) or _as_number(_metric_raw_value(full_model, "revenue"), 0.0)
+    rows = []
+    for key, label in [
+        ("cogs", "تكلفة الإيراد"),
+        ("selling_marketing_expenses", "البيع والتسويق"),
+        ("admin_expenses", "المصاريف الإدارية"),
+        ("operating_expenses", "مصاريف التشغيل"),
+        ("finance_costs", "تكاليف التمويل"),
+        ("tax_zakat", "الزكاة والضريبة"),
+    ]:
+        val = _as_number(mgmt.get(key), None)
+        if val is None:
+            continue
+        rows.append({
+            "البند": label,
+            "القيمة": val,
+            "النسبة من صافي الإيراد": "—" if not revenue else f"{abs(val)/abs(revenue)*100:.1f}%",
+        })
+    return pd.DataFrame(rows)
+
+
 def render_vertical_horizontal_executive(full_model: dict):
     vi = full_model.get("vertical_income", pd.DataFrame())
     vb = full_model.get("vertical_balance", pd.DataFrame())
@@ -1127,7 +1163,7 @@ def render_vertical_horizontal_executive(full_model: dict):
     hb = full_model.get("horizontal_balance", pd.DataFrame())
     comp = full_model.get("comparative_analysis", {}) or {}
 
-    st.caption("هذه الصفحة تلخص بنية الربحية والمركز المالي واتجاه السنة الحالية مقارنة بالسنة السابقة. الجداول التفصيلية تظهر داخل التبويبات أسفل اللوحة.")
+    st.caption("يعرض التحليل الرأسي وزن بنود قائمة الدخل من صافي الإيراد، بينما تعرض المقارنة الأفقية تغير السنة الحالية مقابل السنة السابقة عند توفر ميزانين قابلين للمقارنة.")
 
     cogs = _metric_value(full_model, 'cogs_ratio')
     gm = _metric_value(full_model, 'gross_margin')
@@ -1135,58 +1171,61 @@ def render_vertical_horizontal_executive(full_model: dict):
     nm = _metric_value(full_model, 'net_margin')
     opex = _metric_value(full_model, 'opex_ratio')
 
-    st.markdown("#### هيكل الربحية كنسبة من صافي الإيراد")
-    st.caption("التحليل الرأسي هنا لا يقول: كم ريال ربحنا فقط، بل يوضح وزن كل طبقة من قائمة الدخل من صافي الإيراد.")
+    st.markdown("#### هيكل قائمة الدخل")
+    st.caption("القاعدة المحاسبية هنا: صافي الإيراد هو أساس القياس، وكل بند في قائمة الدخل يُعرض كنسبة منه لفهم الهامش وهيكل التكلفة.")
     cols = st.columns(5)
     with cols[0]:
-        _structure_card("صافي الإيراد", "100%", "أساس القياس", "كل بند أدناه يُقاس كنسبة من هذا الرقم.", "base")
+        _structure_card("صافي الإيراد", "100%", "أساس القياس", "نقطة المقارنة التي تُنسب إليها التكلفة والهوامش والمصاريف.", "base")
     with cols[1]:
-        _structure_card("تكلفة الإيراد", _pct_label(cogs), "تكلفة مباشرة", "كلما ارتفعت ضغطت مجمل الربح والتسعير.", "warning" if cogs is not None and cogs > 0.70 else "neutral")
+        _structure_card("تكلفة الإيراد", _pct_label(cogs), "تكلفة مباشرة", "توضح مقدار ما يستهلكه تقديم الخدمة أو البضاعة قبل الوصول لمجمل الربح.", "warning" if cogs is not None and cogs > 0.70 else "neutral")
     with cols[2]:
-        _structure_card("مجمل الربح", _pct_label(gm), "بعد التكلفة المباشرة", "يقيس قوة التسعير وكفاءة التكلفة قبل المصاريف.", "ok" if gm is not None and gm >= 0.25 else "warning")
+        _structure_card("مجمل الربح", _pct_label(gm), "بعد التكلفة المباشرة", "يقيس قوة التسعير وكفاءة التكلفة المباشرة قبل المصاريف التشغيلية.", "ok" if gm is not None and gm >= 0.25 else "warning")
     with cols[3]:
-        _structure_card("مصاريف التشغيل", _pct_label(opex), "إدارة وبيع وتشغيل", "تحتاج ربطها بمبيعات أو إنتاجية حتى لا تصبح عبئًا ثابتًا.", "warning")
+        _structure_card("مصاريف التشغيل", _pct_label(opex), "إدارة وبيع وتشغيل", "توضح العبء التشغيلي المطلوب لإدارة النشاط وتحويل الإيراد إلى ربح.", "warning" if opex is None or opex > 0.25 else "ok")
     with cols[4]:
-        _structure_card("صافي النتيجة", _pct_label(nm), "بعد كل البنود", "يعكس النتيجة النهائية قبل تفسير البنود غير المتكررة.", "ok" if nm is not None and nm > 0 else "danger")
+        _structure_card("صافي النتيجة", _pct_label(nm), "بعد كل البنود", "يبين ما تبقى من الإيراد بعد التكلفة والمصاريف والتمويل والضرائب.", "ok" if nm is not None and nm > 0 else "danger")
 
-    _render_cogs_quality_note(full_model, compact=True)
+    expense_mix = _expense_ratio_from_model(full_model)
+    if isinstance(expense_mix, pd.DataFrame) and not expense_mix.empty:
+        with st.expander("تحليل مصاريف التشغيل والتكلفة كنسبة من الإيراد"):
+            _render_lux_table(expense_mix, max_rows=12)
 
-    st.markdown("#### مقارنة السنة الحالية بالسنة السابقة")
+    st.markdown("#### المقارنة الأفقية")
     if comp.get('available'):
         summary = comp.get('summary', {}) or {}
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            _comparison_story_card("نمو الإيراد", _fmt_change_pct(summary.get('revenue_change_pct')), f"{summary.get('previous_label','السابق')} → {summary.get('current_label','الحالي')}", 'ok' if (_as_number(summary.get('revenue_change_pct'), 0) or 0) >= 0 else 'danger')
+            _comparison_story_card("الإيراد", _change_badge(summary.get('revenue_change_pct')), f"{summary.get('previous_label','السابق')} → {summary.get('current_label','الحالي')}", 'ok' if (_as_number(summary.get('revenue_change_pct'), 0) or 0) >= 0 else 'danger')
         with c2:
-            _comparison_story_card("تغير مجمل الربح", _fmt_change_pct(summary.get('gross_profit_change_pct')), "أثر التسعير والتكلفة المباشرة", 'ok' if (_as_number(summary.get('gross_profit_change_pct'), 0) or 0) >= 0 else 'danger')
+            _comparison_story_card("مجمل الربح", _change_badge(summary.get('gross_profit_change_pct')), "أثر التسعير والتكلفة المباشرة", 'ok' if (_as_number(summary.get('gross_profit_change_pct'), 0) or 0) >= 0 else 'danger')
         with c3:
-            _comparison_story_card("تغير مصاريف التشغيل", _fmt_change_pct(summary.get('expense_change_pct')), "يحتاج تفسيرًا تشغيليًا عند الارتفاع", 'warning' if (_as_number(summary.get('expense_change_pct'), 0) or 0) > 0 else 'ok')
+            _comparison_story_card("مصاريف التشغيل", _change_badge(summary.get('expense_change_pct'), inverse=True), "يحتاج تفسيرًا عند الارتفاع", 'warning' if (_as_number(summary.get('expense_change_pct'), 0) or 0) > 0 else 'ok')
         with c4:
-            _comparison_story_card("تغير صافي الربح", _fmt_change_pct(summary.get('net_profit_change_pct')), "أهم نتيجة مقارنة بعد كل البنود", 'ok' if (_as_number(summary.get('net_profit_change_pct'), 0) or 0) >= 0 else 'danger')
+            _comparison_story_card("صافي الربح", _change_badge(summary.get('net_profit_change_pct')), "النتيجة النهائية بعد كل البنود", 'ok' if (_as_number(summary.get('net_profit_change_pct'), 0) or 0) >= 0 else 'danger')
     elif comp.get('reason'):
         st.info(comp.get('reason'))
     else:
         st.info("لا توجد سنة مقارنة مقروءة بعد. ارفعي ميزان مراجعة سنة سابقة أو بيانات شهرية لإظهار الاتجاه.")
 
-    st.markdown("#### مركز التحليلات التفصيلية")
-    st.caption("استخدمي التبويبات التالية عند الحاجة للتدقيق. الصفحة الرئيسية تبقى مخصصة للقراءة التنفيذية لا للجداول الخام.")
+    st.markdown("#### التحليلات التفصيلية")
+    st.caption("افتحي الجدول المناسب عند الحاجة للتدقيق. الأسهم تظهر داخل نسبة التغير مباشرة، ولا تُعرض كعمود منفصل.")
 
-    detail_tabs = st.tabs(["قائمة الدخل الرأسي", "المركز المالي الرأسي", "المقارنة السنوية", "حركات الحسابات"])
+    detail_tabs = st.tabs(["قائمة الدخل", "تركيب المركز المالي", "المقارنة السنوية", "حركات الحسابات"])
     with detail_tabs[0]:
         if isinstance(vi, pd.DataFrame) and not vi.empty:
-            st.markdown("##### قائمة الدخل الرأسي")
-            st.caption("يبين وزن كل بند من صافي الإيراد داخل نفس الفترة، لذلك لا يظهر سهم اتجاه إلا عند وجود فترة مقارنة.")
+            st.markdown("##### قائمة الدخل — تحليل رأسي")
+            st.caption("كل بند يُقاس كنسبة من صافي الإيراد داخل نفس الفترة، لذلك لا تظهر أسهم اتجاه إلا عند وجود فترة مقارنة.")
             _render_lux_table(vi, max_rows=20)
         else:
             st.info("التحليل الرأسي لقائمة الدخل غير متاح قبل بناء قائمة دخل من الميزان أو ملفات التشغيل.")
 
     with detail_tabs[1]:
         if isinstance(vb, pd.DataFrame) and not vb.empty:
-            st.markdown("##### المركز المالي الرأسي")
-            st.caption("يبين وزن النقد، العملاء، المخزون، الالتزامات وحقوق الملكية داخل هيكل الأصول والتمويل.")
+            st.markdown("##### تركيب المركز المالي")
+            st.caption("هذا ليس تحليل ربحية. يعرض وزن الأصول والالتزامات وحقوق الملكية من إجمالي الأصول لفهم هيكل التمويل والسيولة.")
             _render_lux_table(vb, max_rows=20)
         else:
-            st.info("المركز المالي الرأسي غير متاح.")
+            st.info("تركيب المركز المالي غير متاح.")
 
     with detail_tabs[2]:
         if comp.get('available') and isinstance(comp.get('income'), pd.DataFrame) and not comp.get('income').empty:
@@ -2158,7 +2197,7 @@ elif page == "5. مساحة التحليل":
 
         with tabs[2]:
             st.subheader("جودة الإيراد")
-            st.caption("جودة الإيراد ليست معادلة واحدة. من ميزان المراجعة نستطيع قياس نقاء الإيراد من الخصومات والمردودات، أما الاستدامة والتكرار والتركيز والتحصيل فتحتاج مبيعات تفصيلية وعملاء وأعمار ذمم.")
+            st.caption("جودة الإيراد تقيس مدى قوة المبيعات المسجلة: هل تتحول إلى صافي إيراد قابل للتحصيل والاستمرار، أم تتآكل بالخصومات والمردودات أو تعتمد على عملاء محدودين. من ميزان المراجعة تُقرأ الخصومات والمردودات وصافي المبيعات، أما التحصيل والتكرار وتركيز العملاء فتحتاج ملفات داعمة.")
             rq_tb = full_model.get("revenue_quality_tb", {}) or {}
             if rq_tb.get("available"):
                 cards = rq_tb.get("cards", {}) or {}
@@ -2176,15 +2215,15 @@ elif page == "5. مساحة التحليل":
                 with c5: kpi_card("صافي المبيعات", f"{cards.get('net_sales',0):,.0f}", "بعد التآكل")
 
                 quality_rows = pd.DataFrame([
-                    {"البعد": "نقاء الإيراد", "المؤشر": "تآكل الإيراد", "المعادلة": "الخصومات + المردودات ÷ إجمالي المبيعات", "القيمة": "—" if lr is None else f"{lr*100:.1f}%", "هل يكفي ميزان المراجعة؟": "نعم إذا كانت حسابات الخصومات والمردودات منفصلة", "ماذا لا يثبت؟": "لا يثبت تكرار الإيراد أو تحصيله نقدًا"},
-                    {"البعد": "سياسة الخصم", "المؤشر": "نسبة الخصومات", "المعادلة": "الخصومات ÷ إجمالي المبيعات", "القيمة": "—" if discount_rate is None else f"{discount_rate*100:.1f}%", "هل يكفي ميزان المراجعة؟": "نعم كمؤشر إجمالي", "ماذا لا يثبت؟": "لا يوضح العميل أو المنتج أو سبب الخصم"},
-                    {"البعد": "المرتجعات", "المؤشر": "نسبة المردودات", "المعادلة": "المردودات ÷ إجمالي المبيعات", "القيمة": "—" if return_rate is None else f"{return_rate*100:.1f}%", "هل يكفي ميزان المراجعة؟": "نعم كمؤشر إجمالي", "ماذا لا يثبت؟": "لا يوضح مشاكل الجودة أو الفرع أو الصنف"},
-                    {"البعد": "التحصيل", "المؤشر": "تحول الإيراد إلى نقد", "المعادلة": "يتطلب ربط المبيعات بالتحصيل/الذمم", "القيمة": "غير محسوب من هذه الصفحة", "هل يكفي ميزان المراجعة؟": "لا", "ماذا لا يثبت؟": "لا يثبت أن المبيعات حصلت نقدًا"},
-                    {"البعد": "الاستدامة", "المؤشر": "تكرار الإيراد وتركيز العملاء", "المعادلة": "إيراد متكرر/إجمالي + أكبر عملاء/إجمالي", "القيمة": "غير محسوب", "هل يكفي ميزان المراجعة؟": "لا", "ماذا لا يثبت؟": "لا يثبت أن الإيراد سيستمر"},
+                    {"البند": "إجمالي المبيعات", "القيمة": f"{gross_sales:,.0f}", "النسبة من إجمالي المبيعات": "100.0%", "القراءة": "حجم المبيعات قبل أي تخفيضات أو مردودات.", "الإجراء": "استخدمه كأساس لقياس التآكل قبل الحكم على النمو."},
+                    {"البند": "الخصومات", "القيمة": f"{discounts:,.0f}", "النسبة من إجمالي المبيعات": "—" if discount_rate is None else f"{discount_rate*100:.1f}%", "القراءة": "ارتفاعها قد يعني ضغط تسعير أو سياسة خصم غير منضبطة.", "الإجراء": "اربط الخصومات بالعميل أو المنتج أو الفرع عند توفر التفصيل."},
+                    {"البند": "المردودات", "القيمة": f"{returns:,.0f}", "النسبة من إجمالي المبيعات": "—" if return_rate is None else f"{return_rate*100:.1f}%", "القراءة": "ارتفاعها قد يشير إلى جودة منتج، تسليم، أو قبول عميل ضعيف.", "الإجراء": "راجع أسباب المرتجعات حسب الصنف أو العميل أو المشروع."},
+                    {"البند": "تآكل الإيراد", "القيمة": "—" if lr is None else f"{lr*100:.1f}%", "النسبة من إجمالي المبيعات": "خصومات + مردودات", "القراءة": "كلما انخفض كان صافي الإيراد أقرب للمبيعات المسجلة.", "الإجراء": "حدّد سقف خصومات ومؤشرات قبول للمبيعات التي تتحول إلى إيراد صافٍ."},
+                    {"البند": "صافي المبيعات", "القيمة": f"{cards.get('net_sales',0):,.0f}", "النسبة من إجمالي المبيعات": "—" if not gross_sales else f"{_as_number(cards.get('net_sales',0),0)/gross_sales*100:.1f}%", "القراءة": "هذا هو الرقم الأقرب للإيراد القابل للتحليل بعد الاستبعادات التجارية.", "الإجراء": "قارنه بالتحصيل والذمم لتقييم جودة الإيراد نقديًا."},
                 ])
-                _render_lux_table(quality_rows, max_rows=10, title="معنى جودة الإيراد وما الذي يمكن حسابه من الميزان")
-                render_insight_panel("قراءة جودة الإيراد من ميزان المراجعة", rq_tb.get("narrative", ""), "خطر" if (lr or 0) >= .20 else "متابعة", "لا نطلق حكمًا كاملًا على جودة الإيراد من الخصومات والمردودات وحدها. نستخدمها كإنذار أولي، ثم نطلب ملف مبيعات تفصيلي وأعمار عملاء لقياس الاستدامة والتحصيل.", ["المعادلة الحالية صحيحة كمؤشر Revenue Leakage، لكنها ليست تعريف جودة الإيراد كاملًا.", "التحليل العالمي لجودة الإيراد يراجع الاستدامة، التكرار، التحصيل، الاعتراف بالإيراد، التركيز، والخصومات/المردودات."])
-                _render_lux_table(rq_tb.get("table", pd.DataFrame()), max_rows=20, title="مصادر أرقام جودة الإيراد من الميزان")
+                _render_lux_table(quality_rows, max_rows=10, title="تحليل نقاء الإيراد من ميزان المراجعة")
+                render_insight_panel("قراءة جودة الإيراد", rq_tb.get("narrative", ""), "خطر" if (lr or 0) >= .20 else "متابعة", "تبدأ القراءة من نقاء الإيراد: إجمالي المبيعات ناقص الخصومات والمردودات. وكلما كان التآكل محدودًا كانت المبيعات المسجلة أقرب إلى صافي إيراد قابل للتحليل. تبقى جودة الإيراد النهائية مرتبطة بالتحصيل، تكرار العملاء، وتركيز الإيرادات عند توفر ملفاتها.", ["ميزان المراجعة يكفي لقياس الخصومات والمردودات وصافي المبيعات عندما تكون حساباتها منفصلة.", "لا يتم الحكم النهائي على الاستدامة أو التحصيل أو تركيز العملاء دون بيانات مبيعات وذمم تفصيلية."])
+                _render_lux_table(rq_tb.get("table", pd.DataFrame()), max_rows=20, title="مصادر أرقام الإيراد من الميزان")
             elif revenue_model and not revenue_model.get("monthly_revenue", pd.DataFrame()).empty:
                 rev_monthly = revenue_model["monthly_revenue"].copy()
                 rev_monthly["revenue"] = pd.to_numeric(rev_monthly["revenue"], errors="coerce").fillna(0)
