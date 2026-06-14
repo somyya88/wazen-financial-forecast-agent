@@ -718,17 +718,18 @@ def apply_theme():
     .v132-formula-card p { color:#475467; line-height:1.85; margin:6px 0 0; }
 
     .v132-table-card {
-        background:#fff; border:1px solid #E3EAF6; border-radius:22px; padding:0; margin:12px 0 18px;
-        box-shadow:0 18px 52px rgba(16,24,40,.06); overflow:hidden;
+        background:#fff; border:1px solid #D8E4F5; border-radius:24px; padding:0; margin:14px 0 20px;
+        box-shadow:0 18px 55px rgba(16,24,40,.07); overflow:hidden;
     }
-    .v132-table-title { padding:14px 18px; color:#0B2E63; font-size:16px; font-weight:950; border-bottom:1px solid #E8EEF8; background:#F8FBFF; }
-    .v132-table-scroll { overflow-x:auto; max-height:520px; }
-    table.v132-table { width:100%; border-collapse:separate; border-spacing:0; direction:rtl; font-size:14px; }
-    .v132-table th { position:sticky; top:0; z-index:1; background:#F8FBFF; color:#344054; font-weight:950; text-align:right; padding:13px 14px; border-bottom:1px solid #E3EAF6; white-space:nowrap; }
-    .v132-table td { padding:12px 14px; color:#1D2939; border-bottom:1px solid #EEF2F7; vertical-align:top; line-height:1.7; }
-    .v132-table tr:nth-child(even) td { background:#FCFDFF; }
+    .v132-table-title { padding:15px 20px; color:#0B2E63; font-size:16px; font-weight:950; border-bottom:1px solid #E8EEF8; background:linear-gradient(90deg,#F8FBFF,#FFFFFF); }
+    .v132-table-scroll { overflow-x:auto; max-height:560px; }
+    table.v132-table { width:100%; border-collapse:separate; border-spacing:0; direction:rtl; font-size:13.5px; }
+    .v132-table th { position:sticky; top:0; z-index:1; background:#17479E; color:#fff; font-weight:950; text-align:right; padding:14px 15px; border-bottom:1px solid #123A82; white-space:nowrap; }
+    .v132-table td { padding:14px 15px; color:#1D2939; border-bottom:1px solid #EEF2F7; vertical-align:top; line-height:1.85; background:#fff; }
+    .v132-table tr:nth-child(even) td { background:#FBFDFF; }
     .v132-table tr:hover td { background:#F3F7FF; }
-    .v132-table td:nth-child(2), .v132-table td:nth-child(3) { font-weight:800; color:#17479E; }
+    .v132-table td:nth-child(1) { font-weight:900; color:#0B2E63; }
+    .v132-table td:nth-child(2), .v132-table td:nth-child(3) { font-weight:850; color:#17479E; }
     .v132-badge { display:inline-block; border-radius:999px; padding:5px 11px; font-size:12px; font-weight:900; white-space:nowrap; }
     .v132-badge.ok { background:#ECFDF3; color:#067647; border:1px solid #ABEFC6; }
     .v132-badge.warning { background:#FFFAEB; color:#B54708; border:1px solid #FEDF89; }
