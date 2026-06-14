@@ -379,16 +379,47 @@ def build_segment_pnl_from_tb(tb_model: dict | None, profile: dict | None = None
     total_revenue = net_sales + other_revenue
 
     # Cost/function totals.
-    cost_of_revenue = float(lf.loc[expense_mask & lf["function"].eq("cost_of_revenue")].apply(lambda r: _row_amount(r, natural="debit", basis="movement"), axis=1).sum())
-    admin = float(lf.loc[expense_mask & lf["function"].eq("admin_opex")].apply(lambda r: _row_amount(r, natural="debit", basis="movement"), axis=1).sum())
-    selling = float(lf.loc[expense_mask & lf["function"].eq("selling_marketing")].apply(lambda r: _row_amount(r, natural="debit", basis="movement"), axis=1).sum())
-    finance = float(lf.loc[expense_mask & lf["function"].eq("finance_payment")].apply(lambda r: _row_amount(r, natural="debit", basis="movement"), axis=1).sum())
-    tax_zakat = float(lf.loc[expense_mask & lf["function"].eq("tax_zakat")].apply(lambda r: _row_amount(r, natural="debit", basis="movement"), axis=1).sum())
-    all_expenses = float(lf.loc[expense_mask].apply(lambda r: _row_amount(r, natural="debit", basis="movement"), axis=1).sum())
-    other_opex = max(0.0, all_expenses - cost_of_revenue - admin - selling - finance - tax_zakat)
+    # V13.2: for inventory/trading style Trial Balances, do NOT treat all direct/operating expenses as COGS.
+    # Periodic inventory COGS can be obtained from the TB when opening inventory, net purchases, and ending inventory exist:
+    # COGS = Opening Inventory + Net Purchases - Ending Inventory.
+    income_statement = (tb_model or {}).get("income_statement", {}) if tb_model else {}
+    opening_inventory = _num(income_statement.get("opening_inventory"))
+    net_purchases_for_cogs = _num(income_statement.get("net_purchases"))
+    ending_inventory = _num(income_statement.get("ending_inventory"))
+    periodic_cogs = _num(income_statement.get("cogs"))
+    inventory_based = bool(opening_inventory > 0 or ending_inventory > 0 or _sum_leaf_names(tb, ["مخزون", "بضاعه", "بضاعة"], basis="closing") > 0)
+
+    code3_cogs = float(lf.loc[codes.str.startswith("3", na=False)].apply(lambda r: _row_amount(r, natural="debit", basis="movement"), axis=1).sum())
+    direct_ops_from_expenses = float(lf.loc[codes.str.startswith("5", na=False) & lf["function"].eq("cost_of_revenue")].apply(lambda r: _row_amount(r, natural="debit", basis="movement"), axis=1).sum())
+
+    if inventory_based and periodic_cogs > 0:
+        cost_of_revenue = periodic_cogs
+        direct_operations = direct_ops_from_expenses
+        cogs_basis = "periodic_inventory_formula"
+        cogs_note = "تم احتساب تكلفة البضاعة المباعة من ميزان المراجعة: مخزون أول المدة + صافي المشتريات - مخزون آخر المدة. مصاريف تشغيل الفروع لا تُخلط مع مجمل الربح؛ تظهر بعده كهامش تشغيل/مساهمة."
+    elif inventory_based and periodic_cogs <= 0 and net_purchases_for_cogs > 0:
+        cost_of_revenue = net_purchases_for_cogs
+        direct_operations = direct_ops_from_expenses
+        cogs_basis = "net_purchases_only_needs_inventory"
+        cogs_note = "تم استخدام صافي المشتريات مؤقتًا لأن بيانات المخزون غير مكتملة؛ يجب إضافة مخزون أول وآخر الفترة أو حساب تكلفة المبيعات المقفل."
+    else:
+        # Service/SaaS/contracting-like models: direct delivery/support/project expenses may belong in cost of revenue.
+        cost_of_revenue = code3_cogs + direct_ops_from_expenses
+        direct_operations = 0.0
+        cogs_basis = "direct_service_cost_classification"
+        cogs_note = "تم احتساب تكلفة الإيراد من المشتريات والتكاليف المباشرة المرتبطة بتقديم الخدمة أو المشروع حسب طبيعة الحسابات."
+
+    admin = float(lf.loc[codes.str.startswith("5", na=False) & lf["function"].eq("admin_opex")].apply(lambda r: _row_amount(r, natural="debit", basis="movement"), axis=1).sum())
+    selling = float(lf.loc[codes.str.startswith("5", na=False) & lf["function"].eq("selling_marketing")].apply(lambda r: _row_amount(r, natural="debit", basis="movement"), axis=1).sum())
+    finance = float(lf.loc[codes.str.startswith("5", na=False) & lf["function"].eq("finance_payment")].apply(lambda r: _row_amount(r, natural="debit", basis="movement"), axis=1).sum())
+    tax_zakat = float(lf.loc[codes.str.startswith("5", na=False) & lf["function"].eq("tax_zakat")].apply(lambda r: _row_amount(r, natural="debit", basis="movement"), axis=1).sum())
+    code5_total = float(lf.loc[codes.str.startswith("5", na=False)].apply(lambda r: _row_amount(r, natural="debit", basis="movement"), axis=1).sum())
+    other_opex = max(0.0, code5_total - direct_operations - admin - selling - finance - tax_zakat)
+    operating_expenses = direct_operations + admin + selling + finance + tax_zakat + other_opex
+    all_expenses = cost_of_revenue + operating_expenses
 
     gross_profit = total_revenue - cost_of_revenue
-    operating_profit = gross_profit - admin - selling - other_opex
+    operating_profit = gross_profit - operating_expenses
     official_net_profit = total_revenue - all_expenses
 
     # Build stream table.
@@ -413,8 +444,9 @@ def build_segment_pnl_from_tb(tb_model: dict | None, profile: dict | None = None
         ["تآكل الإيراد: مردودات وخصومات", -returns - discounts, f"{_pct(_safe_div(returns + discounts, gross_sales))} من إجمالي المبيعات"],
         ["صافي المبيعات", net_sales, "بعد الخصومات والمردودات"],
         ["إيرادات أخرى", other_revenue, "ليست من النشاط الرئيسي غالبًا"],
-        ["تكلفة الإيراد / تقديم الخدمة", -cost_of_revenue, "مشتريات + تكلفة مباشرة + تشغيل/دعم/مشروع/قطاع حسب طبيعة الحساب"],
-        ["مجمل الربح الإداري", gross_profit, "بعد تكلفة الإيراد المقروءة بعمق من الحسابات"],
+        ["تكلفة الإيراد / تكلفة البضاعة المباعة", -cost_of_revenue, cogs_note],
+        ["مجمل الربح الإداري", gross_profit, "بعد تكلفة الإيراد. في نشاط المخزون لا تُخلط مصاريف تشغيل الفروع مع تكلفة البضاعة المباعة."],
+        ["مصاريف تشغيل مباشرة بعد مجمل الربح", -direct_operations, "رواتب/تشغيل/صيانة/فروع تظهر بعد مجمل الربح عند وجود نشاط مخزون أو تجارة."],
         ["المصاريف الإدارية", -admin, "إدارة وعمومية وبنود مشتركة"],
         ["البيع والتسويق", -selling, "مصاريف مبيعات وتسويق وعمولات"],
         ["تمويل/بوابات دفع/رسوم بنكية", -finance, "يعرض منفصلًا حتى لا يشوه الإدارة أو تكلفة الإيراد"],
@@ -446,6 +478,12 @@ def build_segment_pnl_from_tb(tb_model: dict | None, profile: dict | None = None
         "revenue_leakage": returns + discounts,
         "leakage_ratio": leakage_ratio,
         "cost_of_revenue": cost_of_revenue,
+        "cogs_basis": cogs_basis,
+        "cogs_note": cogs_note,
+        "opening_inventory": opening_inventory,
+        "net_purchases": net_purchases_for_cogs,
+        "ending_inventory": ending_inventory,
+        "direct_operations_after_gross": direct_operations,
         "gross_profit": gross_profit,
         "gross_margin": _safe_div(gross_profit, total_revenue),
         "admin": admin,
@@ -454,6 +492,8 @@ def build_segment_pnl_from_tb(tb_model: dict | None, profile: dict | None = None
         "tax_zakat": tax_zakat,
         "other_opex": other_opex,
         "all_expenses": all_expenses,
+        "operating_expenses": operating_expenses,
+        "direct_operations_ratio": _safe_div(direct_operations, total_revenue),
         "admin_ratio": _safe_div(admin, total_revenue),
         "sm_ratio": _safe_div(selling, total_revenue),
         "finance_ratio": _safe_div(finance, total_revenue),

@@ -39,8 +39,12 @@ def build_metric_guard_report(ratio_df: pd.DataFrame, metric_pack: dict | None, 
     balance_metrics = balance.get("metrics", {}) or {}
     ar_quality = str(balance_metrics.get("ar_quality", ""))
 
+    mgmt = full_model.get("management_pnl", {}) or {}
+    cogs_basis = str(mgmt.get("cogs_basis", "") or "")
     evidence = {
         "has_inventory": bool(_num_or_none(balance_metrics.get("inventory")) and abs(_num_or_none(balance_metrics.get("inventory")) or 0) > 1e-9),
+        "has_periodic_inventory_cogs": cogs_basis == "periodic_inventory_formula",
+        "cogs_basis": cogs_basis,
         "has_tb": _has_tb(files or []),
         "has_cash_file": _has_role(files or [], "cash_source"),
         "has_ar_aging": _has_role(files or [], "ar_aging_source"),
@@ -107,9 +111,12 @@ def build_metric_guard_report(ratio_df: pd.DataFrame, metric_pack: dict | None, 
         else:
             state = app.get("state", "محسوب")
             # lower confidence when metric ideally needs average but only one TB may exist
-            if code in ["gross_margin", "cogs_ratio"] and evidence.get("has_inventory"):
+            if code in ["gross_margin", "cogs_ratio"] and evidence.get("has_inventory") and evidence.get("has_periodic_inventory_cogs"):
+                confidence = "مرتفعة"
+                note = "تم احتساب تكلفة البضاعة المباعة من ميزان المراجعة بمعادلة الجرد الدوري: مخزون أول المدة + صافي المشتريات - مخزون آخر المدة."
+            elif code in ["gross_margin", "cogs_ratio"] and evidence.get("has_inventory"):
                 confidence = "متوسطة / تحتاج تحقق"
-                note = "النشاط يظهر مخزونًا أو طبيعة بضاعة؛ لا تعتمد تكلفة الإيراد نهائيًا قبل التحقق من مخزون أول وآخر الفترة أو حساب تكلفة المبيعات المقفل."
+                note = "النشاط يظهر مخزونًا أو طبيعة بضاعة؛ نحتاج مخزون أول وآخر الفترة أو حساب تكلفة المبيعات المقفل قبل اعتماد الهامش نهائيًا."
             elif meta.get("must_average") and not (evidence.get("has_ar_aging") or evidence.get("has_ap_aging")):
                 confidence = "متوسطة / تقديرية"
                 note = "المؤشر محسوب من البيانات المتاحة؛ دقته ترتفع عند توفر أرصدة أول وآخر أو أعمار تفصيلية."
