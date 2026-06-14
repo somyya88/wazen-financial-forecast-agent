@@ -107,7 +107,10 @@ def build_metric_guard_report(ratio_df: pd.DataFrame, metric_pack: dict | None, 
         else:
             state = app.get("state", "محسوب")
             # lower confidence when metric ideally needs average but only one TB may exist
-            if meta.get("must_average") and not (evidence.get("has_ar_aging") or evidence.get("has_ap_aging")):
+            if code in ["gross_margin", "cogs_ratio"] and evidence.get("has_inventory"):
+                confidence = "متوسطة / تحتاج تحقق"
+                note = "النشاط يظهر مخزونًا أو طبيعة بضاعة؛ لا تعتمد تكلفة الإيراد نهائيًا قبل التحقق من مخزون أول وآخر الفترة أو حساب تكلفة المبيعات المقفل."
+            elif meta.get("must_average") and not (evidence.get("has_ar_aging") or evidence.get("has_ap_aging")):
                 confidence = "متوسطة / تقديرية"
                 note = "المؤشر محسوب من البيانات المتاحة؛ دقته ترتفع عند توفر أرصدة أول وآخر أو أعمار تفصيلية."
             elif code in ["runway", "ocf_net_income"] and not evidence.get("has_cash_file"):

@@ -247,41 +247,221 @@ def _ratio_status(ratio_df: pd.DataFrame, code: str) -> str:
     return str(row.get("الحكم", "")) if row else ""
 
 
-def render_ratio_decision_dashboard(ratio_df: pd.DataFrame, health: dict | None = None, findings_df: pd.DataFrame | None = None):
-    st.markdown("#### لوحة مؤشرات القرار")
-    st.caption("النسخة الجديدة لا تعرض كل النسب كجدول طويل؛ تمر كل نسبة أولًا عبر حارس المصدر: هل مدخلاتها موجودة؟ هل تناسب القطاع؟ هل هي فعلية أم تقديرية؟")
 
+def _as_number(value, default=None):
+    try:
+        if value is None or pd.isna(value):
+            return default
+    except Exception:
+        pass
+    if isinstance(value, str):
+        txt = value.replace(',', '').replace('%','').replace('x','').replace('يوم','').replace('شهر','').strip()
+        if txt in ['—', '-', 'غير متاح', 'غير محسوب', '']:
+            return default
+        try:
+            return float(txt)
+        except Exception:
+            return default
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _money0(value):
+    n = _as_number(value, 0.0)
+    return f"{n:,.0f}"
+
+
+def _pct0(value):
+    n = _as_number(value, None)
+    return "—" if n is None else f"{n*100:.1f}%"
+
+
+def _metric_value(full_model: dict, code: str):
+    return ((full_model.get('metric_pack', {}) or {}).get('metrics', {}) or {}).get(code)
+
+
+def _has_inventory_context(full_model: dict, profile: dict | None = None) -> bool:
+    profile = profile or refresh_business_profile()
+    sector_text = " ".join([str(profile.get(k, '')) for k in ['sector','activity','business_model','sales_channel']]).lower()
+    inventory_words = ['تجارة', 'تجاري', 'مطعم', 'مقهى', 'محامص', 'تموين', 'صناعة', 'تصنيع', 'مخزون', 'جملة', 'تجزئة']
+    inv = (((full_model.get('balance_sheet', {}) or {}).get('metrics', {}) or {}).get('inventory'))
+    return abs(_as_number(inv, 0.0) or 0.0) > 1e-6 or any(w in sector_text for w in inventory_words)
+
+
+def _confidence_layers(full_model: dict, guarded_df: pd.DataFrame | None = None) -> dict:
+    has_tb = bool((full_model.get('balance_sheet', {}) or {}).get('available') or not (full_model.get('data_reading', pd.DataFrame())).empty)
+    inventory_sensitive = _has_inventory_context(full_model)
+    low_items = 0
+    if isinstance(guarded_df, pd.DataFrame) and not guarded_df.empty and 'درجة الثقة' in guarded_df.columns:
+        low_items = int(guarded_df['درجة الثقة'].astype(str).str.contains('منخفضة', na=False).sum())
+    classification = 'متوسطة' if inventory_sensitive else 'مرتفعة'
+    diagnosis = 'متوسطة' if inventory_sensitive or low_items else 'مرتفعة'
+    return {
+        'data': 'مرتفعة' if has_tb else 'متوسطة',
+        'classification': classification,
+        'diagnosis': diagnosis,
+        'data_note': 'الملفات مقروءة ويمكن تتبع مصدر الرقم.' if has_tb else 'مصادر البيانات محدودة أو غير مكتملة.',
+        'classification_note': 'تحتاج تكلفة الإيراد تحققًا من المخزون/تكلفة المبيعات عند وجود نشاط بضاعة.' if inventory_sensitive else 'التصنيف الحالي لا يظهر فجوة جوهرية واضحة.',
+        'diagnosis_note': 'القراءة قابلة للاستخدام لكنها ليست نهائية قبل تثبيت تكلفة المبيعات والسيولة النقدية.' if diagnosis != 'مرتفعة' else 'القراءة مدعومة بمصادر كافية حاليًا.',
+    }
+
+
+def _tone_from_status(status: str) -> str:
+    text = str(status or '')
+    if 'خطر' in text or 'مرتفع' in text or 'خس' in text:
+        return 'danger'
+    if 'متوسط' in text or 'تقدير' in text or 'مراجعة' in text or 'غير' in text:
+        return 'warning'
+    return 'ok'
+
+
+def _html_escape(text):
+    return str(text or '').replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
+
+
+def _decision_card(icon: str, title: str, verdict: str, evidence: str, action: str, tone: str = 'warning'):
+    st.markdown(f"""
+    <div class="v131-decision-card {tone}">
+        <div class="v131-decision-icon">{_html_escape(icon)}</div>
+        <div class="v131-decision-body">
+            <div class="v131-decision-title">{_html_escape(title)}</div>
+            <div class="v131-decision-verdict">{_html_escape(verdict)}</div>
+            <div class="v131-decision-evidence"><strong>الدليل:</strong> {_html_escape(evidence)}</div>
+            <div class="v131-decision-action"><strong>الإجراء:</strong> {_html_escape(action)}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_sources_audit_page(full_model: dict, guarded_df: pd.DataFrame | None = None):
+    st.subheader("مصادر الأرقام والثقة")
+    st.caption("هذه الصفحة للتدقيق فقط. لا تعرض تشخيصًا تنفيذيًا ولا Health Score؛ وظيفتها توضيح مصدر الرقم وحدود الثقة.")
+    layers = _confidence_layers(full_model, guarded_df)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown(f"""<div class="v131-audit-card"><span>ثقة مصدر البيانات</span><strong>{layers['data']}</strong><em>{layers['data_note']}</em></div>""", unsafe_allow_html=True)
+    with c2:
+        st.markdown(f"""<div class="v131-audit-card"><span>ثقة التصنيف</span><strong>{layers['classification']}</strong><em>{layers['classification_note']}</em></div>""", unsafe_allow_html=True)
+    with c3:
+        st.markdown(f"""<div class="v131-audit-card"><span>ثقة التشخيص</span><strong>{layers['diagnosis']}</strong><em>{layers['diagnosis_note']}</em></div>""", unsafe_allow_html=True)
+
+    data_reading = full_model.get("data_reading", pd.DataFrame())
+    if isinstance(data_reading, pd.DataFrame) and not data_reading.empty:
+        st.markdown("#### الأرقام الأساسية ومصدرها")
+        show = data_reading.copy()
+        preferred = [c for c in ["ما تمت قراءته", "القيمة", "المصدر", "لماذا يهم؟"] if c in show.columns]
+        st.dataframe(show[preferred] if preferred else show, use_container_width=True, hide_index=True)
+    else:
+        st.info("لا توجد طبقة مصادر أرقام قابلة للعرض بعد.")
+
+    if isinstance(guarded_df, pd.DataFrame) and not guarded_df.empty:
+        gaps = guarded_df[guarded_df["حالة المؤشر"].astype(str).eq("غير قابل للحساب")]
+        if not gaps.empty:
+            with st.expander("فجوات أرقام لا يجوز تحويلها إلى صفر"):
+                cols = [c for c in ["المؤشر", "المطلوب للحساب", "المصدر الأساسي", "ملاحظة CMA"] if c in gaps.columns]
+                st.dataframe(gaps[cols], use_container_width=True, hide_index=True)
+        with st.expander("جدول تدقيق مصادر النسب"):
+            cols = [c for c in ["المجموعة", "المؤشر", "النتيجة", "حالة المؤشر", "درجة الثقة", "مصدر الحساب", "ملاحظة CMA"] if c in guarded_df.columns]
+            st.dataframe(guarded_df[cols], use_container_width=True, hide_index=True)
+
+    mgmt = full_model.get("management_pnl", {}) or {}
+    if mgmt and isinstance(mgmt.get("management_table"), pd.DataFrame) and not mgmt.get("management_table").empty:
+        with st.expander("قائمة الدخل الإدارية ومصدر التصنيف"):
+            st.caption("هذه طبقة تدقيق للتصنيف فقط؛ لا تغيّر صافي النتيجة بسبب إعادة التصنيف.")
+            st.dataframe(mgmt.get("management_table"), use_container_width=True, hide_index=True)
+    bs = (full_model.get("balance_sheet") or {})
+    if bs.get("available"):
+        with st.expander("المركز المالي التحليلي ومصدره"):
+            st.dataframe(bs.get("balance_sheet", pd.DataFrame()), use_container_width=True, hide_index=True)
+
+
+def _build_decisions(full_model: dict, guarded_df: pd.DataFrame | None = None) -> list[dict]:
+    gm = _metric_value(full_model, 'gross_margin')
+    cogs = _metric_value(full_model, 'cogs_ratio')
+    op = _metric_value(full_model, 'operating_margin')
+    nm = _metric_value(full_model, 'net_margin')
+    qr = _metric_value(full_model, 'quick_ratio')
+    cr = _metric_value(full_model, 'cash_ratio')
+    dr = _metric_value(full_model, 'debt_ratio')
+    current = _metric_value(full_model, 'current_ratio')
+    inventory_sensitive = _has_inventory_context(full_model)
+
+    decisions = []
+    if cogs is not None and cogs >= 1:
+        action = 'تحقق من تكلفة البضاعة المباعة والمخزون قبل اعتماد الهامش.' if inventory_sensitive else 'افصل تكلفة تقديم الخدمة عن المصاريف العامة وراجع التسعير.'
+        decisions.append({'icon':'🧮','title':'هل نموذج الربح يعمل؟','verdict':'خطر: تكلفة الإيراد تتجاوز الإيراد','evidence':f"تكلفة الإيراد {_pct0(cogs)} / هامش مجمل الربح {_pct0(gm)}",'action':action,'tone':'danger'})
+    elif gm is not None and gm < .20:
+        decisions.append({'icon':'🧮','title':'هل نموذج الربح يعمل؟','verdict':'ضعيف: الهامش الإجمالي لا يعطي مساحة كافية','evidence':f"هامش مجمل الربح {_pct0(gm)}",'action':'راجع التسعير والتكلفة المباشرة قبل التركيز على الإدارة فقط.','tone':'warning'})
+    else:
+        decisions.append({'icon':'🧮','title':'هل نموذج الربح يعمل؟','verdict':'مقبول مبدئيًا','evidence':f"هامش مجمل الربح {_pct0(gm)}",'action':'انتقل لفحص التشغيل والسيولة حتى لا يخفي الهامش مشكلة نقدية.','tone':'ok'})
+
+    if op is not None and op < 0:
+        decisions.append({'icon':'⚙️','title':'هل التشغيل مربح؟','verdict':'خطر: التشغيل خاسر','evidence':f"هامش التشغيل {_pct0(op)} وصافي الهامش {_pct0(nm)}",'action':'راجع المصاريف التشغيلية غير المرتبطة مباشرة بالإيراد وخفف البنود غير المنتجة.','tone':'danger'})
+    else:
+        decisions.append({'icon':'⚙️','title':'هل التشغيل مربح؟','verdict':'قابل للمتابعة','evidence':f"هامش التشغيل {_pct0(op)}",'action':'اربط كل بند تشغيلي بمؤشر مبيعات أو إنتاجية.','tone':'ok'})
+
+    if (qr is not None and qr < .6) or (cr is not None and cr < .2):
+        decisions.append({'icon':'💧','title':'هل النقد يكفي للالتزامات القريبة؟','verdict':'خطر سيولة سريع','evidence':f"Quick Ratio {_as_number(qr,0):.2f}x / Cash Ratio {_as_number(cr,0):.2f}x / Current Ratio {_as_number(current,0):.2f}x",'action':'لا تعتمد على نسبة التداول وحدها؛ جهّز خطة سيولة قصيرة وجدولة سداد.','tone':'danger'})
+    else:
+        decisions.append({'icon':'💧','title':'هل النقد يكفي؟','verdict':'السيولة مقبولة مبدئيًا','evidence':f"Quick Ratio {_as_number(qr,0):.2f}x / Cash Ratio {_as_number(cr,0):.2f}x",'action':'اربط السيولة بتقرير النقد والتحصيل عند توفره.','tone':'ok'})
+
+    if dr is not None and dr > .80:
+        decisions.append({'icon':'🧱','title':'هل المديونية آمنة؟','verdict':'خطر رافعة مالية مرتفعة','evidence':f"الالتزامات إلى الأصول {_pct0(dr)}",'action':'تجنب التزامات جديدة قبل تحسين الهامش والسيولة.','tone':'danger'})
+    elif dr is not None and dr > .65:
+        decisions.append({'icon':'🧱','title':'هل المديونية آمنة؟','verdict':'تحتاج متابعة','evidence':f"الالتزامات إلى الأصول {_pct0(dr)}",'action':'راقب الالتزامات قصيرة الأجل وربطها بتحصيل نقدي واضح.','tone':'warning'})
+
+    gaps = []
+    if isinstance(guarded_df, pd.DataFrame) and not guarded_df.empty:
+        gaps = guarded_df[guarded_df['حالة المؤشر'].astype(str).eq('غير قابل للحساب')]['المؤشر'].astype(str).head(3).tolist()
+    if gaps or inventory_sensitive:
+        decisions.append({'icon':'🧩','title':'ما فجوة القرار؟','verdict':'القراءة تحتاج تدعيمًا قبل القرار النهائي','evidence':('، '.join(gaps) if gaps else 'تكلفة الإيراد تحتاج تحققًا من المخزون/التكلفة'), 'action':'أضف ملفات السيولة/المخزون/الأعمار حسب الفجوة، ولا تحوّل المؤشر الناقص إلى صفر.', 'tone':'warning'})
+
+    # Ensure maximum five cards
+    return decisions[:5]
+
+
+def render_ratio_decision_dashboard(ratio_df: pd.DataFrame, health: dict | None = None, findings_df: pd.DataFrame | None = None):
+    st.caption("هذه الصفحة لا تعرض كل النسب أولًا؛ تعرض القرار، الدليل، والإجراء. الجداول التفصيلية تظهر عند الحاجة فقط.")
     profile = refresh_business_profile()
     full_model = st.session_state.models.get("comprehensive_model", {}) if st.session_state.get("models") else {}
     guarded_df = build_metric_guard_report(ratio_df, full_model.get("metric_pack", {}), profile, st.session_state.files, full_model)
+    layers = _confidence_layers(full_model, guarded_df)
+    health = health or full_model.get('financial_health_score', {}) or {}
+    summary = metric_guard_summary(guarded_df)
+    decisions = _build_decisions(full_model, guarded_df)
+    worst = next((d for d in decisions if d['tone'] == 'danger'), decisions[0] if decisions else {'title':'—','verdict':'—'})
 
-    # Executive command strip
-    if health:
-        summary = metric_guard_summary(guarded_df)
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            kpi_card("Financial Health", f"{health.get('score',0):.0f}/100", health.get("label", ""))
-        with c2:
-            kpi_card("تغطية المؤشرات", f"{summary.get('coverage',0):.0f}%", f"{summary.get('available',0)} من {summary.get('total',0)}")
-        with c3:
-            kpi_card("ثقة القراءة", summary.get("confidence", "—"), "حسب مصدر كل نسبة")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        kpi_card("Financial Health", f"{health.get('score','—')}/100", health.get('label', ''))
+    with c2:
+        kpi_card("أخطر قرار الآن", worst.get('title','—'), worst.get('verdict',''))
+    with c3:
+        kpi_card("ثقة التشخيص", layers['diagnosis'], layers['diagnosis_note'])
 
+    st.markdown("#### أكبر قرارات يجب حسمها الآن")
+    cols = st.columns(2)
+    for i, d in enumerate(decisions):
+        with cols[i % 2]:
+            _decision_card(d['icon'], d['title'], d['verdict'], d['evidence'], d['action'], d['tone'])
+
+    with st.expander("عرض جدول النسب التفصيلي"):
+        if guarded_df is not None and not guarded_df.empty:
+            slim_cols = [c for c in ["المجموعة", "المؤشر", "النتيجة", "الحكم", "حالة المؤشر", "درجة الثقة", "مصدر الحساب"] if c in guarded_df.columns]
+            st.dataframe(guarded_df[slim_cols], use_container_width=True, hide_index=True)
     if isinstance(findings_df, pd.DataFrame) and not findings_df.empty:
-        st.markdown("#### أهم 3 نتائج مالية قبل الجداول")
-        show_cols = [c for c in ["المجال", "النتيجة التنفيذية", "الدليل", "مستوى الخطورة", "الأثر المالي", "الإجراء المقترح"] if c in findings_df.columns]
-        st.dataframe(findings_df[show_cols].head(3), use_container_width=True, hide_index=True)
+        with st.expander("أهم نتائج التشخيص التفصيلية"):
+            show_cols = [c for c in ["المجال", "النتيجة التنفيذية", "الدليل", "مستوى الخطورة", "الأثر المالي", "الإجراء المقترح"] if c in findings_df.columns]
+            st.dataframe(findings_df[show_cols].head(8), use_container_width=True, hide_index=True)
 
-    render_metric_guard_experience(guarded_df)
+    gaps = guarded_df[guarded_df["حالة المؤشر"].astype(str).eq("غير قابل للحساب")] if isinstance(guarded_df, pd.DataFrame) and not guarded_df.empty else pd.DataFrame()
+    if not gaps.empty:
+        with st.expander("مؤشرات لم تُحسب لأن مدخلاتها غير مكتملة"):
+            cols = [c for c in ["المؤشر", "المطلوب للحساب", "المصدر الأساسي", "ملاحظة CMA"] if c in gaps.columns]
+            st.dataframe(gaps[cols], use_container_width=True, hide_index=True)
 
-    if guarded_df is not None and not guarded_df.empty:
-        st.markdown("#### التفاصيل حسب المجال")
-        for group in guarded_df.get("المجموعة", pd.Series(dtype=str)).dropna().unique():
-            sub = guarded_df[guarded_df["المجموعة"].eq(group)].copy()
-            if sub.empty:
-                continue
-            with st.expander(f"{group} — {len(sub)} مؤشرات", expanded=group in ["الربحية", "السيولة"]):
-                display_cols = [c for c in ["المؤشر", "النتيجة", "الحكم", "حالة المؤشر", "درجة الثقة", "مصدر الحساب", "سؤال الإدارة", "قراءة CFO", "الإجراء التنفيذي", "مؤشر المتابعة", "طريقة الحساب"] if c in sub.columns]
-                st.dataframe(sub[display_cols], use_container_width=True, hide_index=True)
 
 def render_vertical_horizontal_executive(full_model: dict):
     vi = full_model.get("vertical_income", pd.DataFrame())
@@ -289,38 +469,48 @@ def render_vertical_horizontal_executive(full_model: dict):
     hm = full_model.get("horizontal_monthly", pd.DataFrame())
     hb = full_model.get("horizontal_balance", pd.DataFrame())
 
-    st.markdown("#### ما الذي تكشفه النسب الرأسية؟")
+    st.caption("التحليل الرأسي يشرح أين يذهب كل 100 ريال مبيعات. التحليل الأفقي لا يظهر كتحليل اتجاه إلا عند وجود فترة مقارنة أو بيانات شهرية.")
+    cogs = _metric_value(full_model, 'cogs_ratio')
+    gm = _metric_value(full_model, 'gross_margin')
+    op = _metric_value(full_model, 'operating_margin')
+    nm = _metric_value(full_model, 'net_margin')
+    opex = _metric_value(full_model, 'opex_ratio')
+    inventory_sensitive = _has_inventory_context(full_model)
+
+    st.markdown("#### من كل 100 ريال مبيعات")
+    st.markdown(f"""
+    <div class="v131-waterfall">
+        <div class="wf-step base"><span>صافي المبيعات</span><strong>100.0</strong><em>ريال</em></div>
+        <div class="wf-step cost"><span>تكلفة الإيراد</span><strong>{'—' if cogs is None else f'{cogs*100:.1f}'}</strong><em>ريال</em></div>
+        <div class="wf-step {'danger' if (gm is not None and gm < 0) else 'ok'}"><span>مجمل الربح</span><strong>{'—' if gm is None else f'{gm*100:.1f}'}</strong><em>ريال</em></div>
+        <div class="wf-step cost"><span>المصاريف التشغيلية</span><strong>{'—' if opex is None else f'{opex*100:.1f}'}</strong><em>ريال</em></div>
+        <div class="wf-step {'danger' if (nm is not None and nm < 0) else 'ok'}"><span>صافي النتيجة</span><strong>{'—' if nm is None else f'{nm*100:.1f}'}</strong><em>ريال</em></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if inventory_sensitive:
+        st.warning("تنبيه مهم: إذا كان النشاط يعتمد على مخزون أو مشتريات، فلا تعتمد تكلفة الإيراد كنسبة نهائية إلا بعد التأكد من مخزون أول وآخر الفترة أو حساب تكلفة المبيعات المقفل. المشتريات وحدها قد لا تساوي تكلفة المبيعات.")
+
     if isinstance(vi, pd.DataFrame) and not vi.empty:
-        def val(label):
-            row = vi[vi["البند"].astype(str).eq(label)]
-            return str(row.iloc[0].get("نسبة من الإيرادات", "—")) if not row.empty else "—"
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: kpi_card("تكلفة الإيراد", val("تكلفة الإيراد / المبيعات"), "من الإيرادات")
-        with c2: kpi_card("مجمل الربح", val("مجمل الربح"), "قبل الإدارة والتسويق")
-        with c3: kpi_card("المصاريف التشغيلية", val("المصاريف التشغيلية"), "ضغط التشغيل")
-        with c4: kpi_card("صافي الربح", val("صافي الربح"), "النتيجة النهائية")
         with st.expander("عرض جدول التحليل الرأسي لقائمة الدخل"):
             st.dataframe(vi, use_container_width=True, hide_index=True)
     else:
         st.info("التحليل الرأسي لقائمة الدخل غير متاح قبل بناء قائمة دخل من الميزان أو ملفات التشغيل.")
 
+    st.markdown("#### التحليل الأفقي")
     if isinstance(hm, pd.DataFrame) and not hm.empty:
-        st.markdown("#### ما الذي تغيّر شهريًا؟")
+        st.caption("هذه قراءة اتجاه شهرية لأنها مبنية على بيانات شهرية.")
         st.dataframe(hm, use_container_width=True, hide_index=True)
     else:
-        st.caption("التحليل الأفقي الشهري يحتاج بيانات شهرية من ملف المبيعات أو المصروفات. الميزان يعطي قراءة الفترة، والملفات الشهرية تعطي الاتجاه.")
+        st.info("التحليل الأفقي لقائمة الدخل غير متاح من ميزان فترة واحدة. نحتاج ميزان فترة مقارنة أو ملف مبيعات/مصروفات شهري لإظهار اتجاه حقيقي.")
 
-    c1, c2 = st.columns(2)
-    with c1:
-        if isinstance(vb, pd.DataFrame) and not vb.empty:
-            with st.expander("التحليل الرأسي للمركز المالي"):
-                st.dataframe(vb, use_container_width=True, hide_index=True)
-    with c2:
-        if isinstance(hb, pd.DataFrame) and not hb.empty:
-            with st.expander("أكبر تغيرات المركز المالي"):
-                st.dataframe(hb, use_container_width=True, hide_index=True)
-
-
+    if isinstance(vb, pd.DataFrame) and not vb.empty:
+        with st.expander("التحليل الرأسي للمركز المالي"):
+            st.dataframe(vb, use_container_width=True, hide_index=True)
+    if isinstance(hb, pd.DataFrame) and not hb.empty:
+        with st.expander("أكبر حركات الحسابات من أول الفترة إلى آخرها — ليست تحليلًا أفقيًا كاملًا"):
+            st.caption("هذا يعرض تغيرات أرصدة المركز المالي/الحسابات داخل الفترة. لا يستخدم كبديل عن مقارنة سنة بسنة أو شهر بشهر.")
+            st.dataframe(hb, use_container_width=True, hide_index=True)
 def render_liquidity_decision_view(full_model: dict, liq_model: dict | None):
     ratio_df = full_model.get("ratios", pd.DataFrame())
     balance = full_model.get("balance_sheet", {})
@@ -762,11 +952,11 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V13.0</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V13.1</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("## Wazen V12")
+    st.markdown("## Wazen V13")
     st.caption("Financial Health & Action Intelligence")
     if st.session_state.get("nav_page") not in PAGE_OPTIONS:
         st.session_state.nav_page = PAGE_OPTIONS[0]
@@ -782,7 +972,7 @@ with st.sidebar:
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
     st.checkbox("تفعيل صياغة AI للملخص التنفيذي إذا كان المفتاح متاحًا", key="ai_narrative_enabled", value=st.session_state.get("ai_narrative_enabled", False))
-    st.caption("V13.0: Sector-aware Metric Guard + Decision UX")
+    st.caption("V13.1: Analysis Pages UX + Metric Source Guard")
 
 
 # -----------------------------------------------------------------------------
@@ -1160,26 +1350,11 @@ elif page == "5. مساحة التحليل":
         full_model = models.get("comprehensive_model", {})
         profile = refresh_business_profile()
         guarded_for_command = build_metric_guard_report(full_model.get("ratios", pd.DataFrame()), full_model.get("metric_pack", {}), profile, st.session_state.files, full_model)
-        render_cfo_command_center(full_model, guarded_for_command)
+        st.caption("نبدأ من صفحات التحليل. التشخيص التنفيذي يبنى لاحقًا بعد تثبيت صحة الأرقام وطريقة عرضها.")
         tabs = st.tabs(["مصادر الأرقام", "مؤشرات القرار", "التحليل الرأسي والأفقي", "جودة الإيراد", "الربحية", "السيولة والنقد", "التحصيل والدوران", "المصاريف", "معايير القطاع", "كتالوج النسب CMA"])
 
         with tabs[0]:
-            st.subheader("مصادر الأرقام والثقة")
-            st.caption("هذه الصفحة للتدقيق فقط: من أين جاء كل رقم؟ أما التشخيص التنفيذي فيظهر مرة واحدة في صفحة التشخيص حتى لا تتكرر القراءة.")
-            data_reading = full_model.get("data_reading", pd.DataFrame())
-            if isinstance(data_reading, pd.DataFrame) and not data_reading.empty:
-                st.dataframe(data_reading, use_container_width=True, hide_index=True)
-            mgmt = full_model.get("management_pnl", {})
-            if mgmt and isinstance(mgmt.get("management_table"), pd.DataFrame) and not mgmt.get("management_table").empty:
-                with st.expander("قائمة الدخل الإدارية ومصدر التصنيف"):
-                    st.caption("تظهر هنا إعادة عرض تكلفة الإيراد والمصاريف. هذه ليست تكرارًا للتشخيص، بل طبقة تدقيق للرقم.")
-                    st.dataframe(mgmt.get("management_table"), use_container_width=True, hide_index=True)
-            bs = (full_model.get("balance_sheet") or {})
-            if bs.get("available"):
-                with st.expander("المركز المالي التحليلي"):
-                    st.dataframe(bs.get("balance_sheet", pd.DataFrame()), use_container_width=True, hide_index=True)
-            else:
-                st.info("المركز المالي غير متاح قبل قراءة ميزان مراجعة صالح.")
+            render_sources_audit_page(full_model, guarded_for_command)
 
         with tabs[1]:
             st.subheader("مؤشرات القرار المالي")

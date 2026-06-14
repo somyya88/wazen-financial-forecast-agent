@@ -636,6 +636,55 @@ def apply_theme():
     .v128-mini-card span { color:#475467; font-size:13px; }
     @media(max-width: 1000px){ .v128-command-grid{ grid-template-columns:1fr; } }
 
+
+
+    /* V13.1 - decision-first analysis pages */
+    .v131-audit-card {
+        background:#fff; border:1px solid #E3EAF6; border-radius:22px;
+        padding:18px 20px; min-height:135px; box-shadow:0 16px 42px rgba(16,24,40,.055);
+        border-right:6px solid #17479E; margin-bottom:16px;
+    }
+    .v131-audit-card span { display:block; color:#667085; font-weight:900; font-size:14px; margin-bottom:8px; }
+    .v131-audit-card strong { display:block; color:#17479E; font-weight:950; font-size:31px; margin-bottom:8px; }
+    .v131-audit-card em { display:block; color:#475467; font-style:normal; line-height:1.7; font-size:13.5px; }
+    .v131-decision-card {
+        display:flex; gap:14px; align-items:flex-start; background:#fff; border:1px solid #E3EAF6;
+        border-radius:22px; padding:18px 18px; margin:10px 0 14px; min-height:170px;
+        box-shadow:0 18px 48px rgba(16,24,40,.06); position:relative; overflow:hidden;
+    }
+    .v131-decision-card:before { content:""; position:absolute; right:0; top:0; height:100%; width:7px; background:#FAA61A; }
+    .v131-decision-card.danger:before { background:#D92D20; }
+    .v131-decision-card.warning:before { background:#FAA61A; }
+    .v131-decision-card.ok:before { background:#12B76A; }
+    .v131-decision-icon {
+        width:48px; min-width:48px; height:48px; border-radius:16px; display:flex; align-items:center; justify-content:center;
+        background:#F3F7FF; color:#17479E; font-size:24px; font-weight:900; margin-right:8px;
+    }
+    .v131-decision-title { color:#0B2E63; font-size:18px; font-weight:950; margin-bottom:6px; }
+    .v131-decision-verdict { color:#111827; font-size:16px; font-weight:900; margin-bottom:8px; }
+    .v131-decision-card.danger .v131-decision-verdict { color:#B42318; }
+    .v131-decision-card.warning .v131-decision-verdict { color:#B54708; }
+    .v131-decision-card.ok .v131-decision-verdict { color:#067647; }
+    .v131-decision-evidence, .v131-decision-action { color:#475467; line-height:1.75; font-size:14px; margin-top:5px; }
+    .v131-waterfall {
+        display:grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap:12px; margin:14px 0 18px;
+    }
+    .wf-step {
+        background:#fff; border:1px solid #E3EAF6; border-radius:22px; padding:18px 16px;
+        box-shadow:0 16px 42px rgba(16,24,40,.055); min-height:145px; position:relative; overflow:hidden;
+    }
+    .wf-step:before { content:""; position:absolute; right:0; top:0; width:7px; height:100%; background:#FAA61A; }
+    .wf-step.base:before { background:#17479E; }
+    .wf-step.cost:before { background:#FAA61A; }
+    .wf-step.danger:before { background:#D92D20; }
+    .wf-step.ok:before { background:#12B76A; }
+    .wf-step span { display:block; color:#344054; font-weight:900; font-size:15px; min-height:36px; }
+    .wf-step strong { display:block; direction:ltr; color:#17479E; font-size:34px; font-weight:950; margin-top:10px; }
+    .wf-step.danger strong { color:#B42318; }
+    .wf-step.ok strong { color:#067647; }
+    .wf-step em { color:#667085; font-style:normal; font-size:13px; }
+    @media(max-width: 1050px){ .v131-waterfall{ grid-template-columns:1fr; } }
+
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
