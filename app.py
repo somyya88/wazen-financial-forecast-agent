@@ -283,6 +283,220 @@ def _metric_value(full_model: dict, code: str):
     return ((full_model.get('metric_pack', {}) or {}).get('metrics', {}) or {}).get(code)
 
 
+# -----------------------------------------------------------------------------
+# V13.5 decision-quality helpers
+# -----------------------------------------------------------------------------
+BENCHMARK_KEY_MAP = {
+    "cogs_ratio": "direct_cost_ratio",
+    "direct_cost_ratio": "direct_cost_ratio",
+    "gross_margin": "gross_margin",
+    "net_margin": "net_margin",
+    "opex_ratio": "opex_ratio",
+    "admin_ratio": "opex_ratio",
+    "sm_ratio": "opex_ratio",
+    "revenue_leakage_ratio": "return_rate",
+    "discount_rate": "discount_rate",
+    "return_rate": "return_rate",
+    "margin_of_safety": "margin_of_safety",
+}
+
+GENERIC_RATIO_BENCHMARKS = {
+    "current_ratio": {"safe": 1.50, "watch": 1.00, "direction": "higher", "unit": "x", "label": "سيولة قصيرة الأجل"},
+    "quick_ratio": {"safe": 1.00, "watch": 0.60, "direction": "higher", "unit": "x", "label": "سيولة سريعة"},
+    "cash_ratio": {"safe": 0.50, "watch": 0.20, "direction": "higher", "unit": "x", "label": "غطاء نقدي فوري"},
+    "dso": {"safe": 30.0, "watch": 60.0, "direction": "lower", "unit": "يوم", "label": "أيام تحصيل"},
+    "dpo": {"safe": 45.0, "watch": 75.0, "direction": "band", "unit": "يوم", "label": "أيام سداد"},
+    "ccc": {"safe": 30.0, "watch": 75.0, "direction": "lower", "unit": "يوم", "label": "دورة نقد"},
+    "receivables_turnover": {"safe": 8.0, "watch": 4.0, "direction": "higher", "unit": "x", "label": "دوران ذمم"},
+    "inventory_turnover": {"safe": 6.0, "watch": 3.0, "direction": "higher", "unit": "x", "label": "دوران مخزون"},
+    "debt_ratio": {"safe": 0.50, "watch": 0.75, "direction": "lower", "unit": "%", "label": "نسبة الالتزامات"},
+    "debt_to_equity": {"safe": 1.00, "watch": 2.00, "direction": "lower", "unit": "x", "label": "رافعة مالية"},
+}
+
+
+def _metric_raw_value(full_model: dict, code: str):
+    return ((full_model.get('metric_pack', {}) or {}).get('metrics', {}) or {}).get(code)
+
+
+def _metric_current_value(full_model: dict, ratio_row: dict | None, code: str):
+    raw = _metric_raw_value(full_model, code)
+    if raw is not None:
+        return _as_number(raw, None)
+    if ratio_row:
+        return _as_number(ratio_row.get('النتيجة'), None)
+    return None
+
+
+def _fmt_benchmark_value(value, unit: str = "%") -> str:
+    n = _as_number(value, None)
+    if n is None:
+        return "—"
+    if unit == "%":
+        return f"{n*100:.1f}%"
+    if unit == "x":
+        return f"{n:.2f}x"
+    if unit == "يوم":
+        return f"{n:.0f} يوم"
+    return f"{n:,.0f}"
+
+
+def _benchmark_for_metric(code: str, profile: dict | None = None) -> dict:
+    profile = profile or refresh_business_profile()
+    sector = profile.get('sector', 'خدمي')
+    cfg = get_sector_config(sector)
+    key = BENCHMARK_KEY_MAP.get(code, code)
+    b = (cfg.get('benchmarks') or {}).get(key)
+    if b:
+        direction = 'lower' if key in ['direct_cost_ratio', 'opex_ratio', 'return_rate', 'discount_rate'] else 'higher'
+        return {
+            'available': True,
+            'key': key,
+            'label': b.get('label', key),
+            'safe': b.get('safe'),
+            'watch': b.get('watch'),
+            'direction': direction,
+            'unit': '%',
+            'basis': 'معيار قطاعي إرشادي داخلي',
+            'confidence': 'إرشادي حتى ربط مصدر خارجي موثق',
+        }
+    g = GENERIC_RATIO_BENCHMARKS.get(code)
+    if g:
+        return {
+            'available': True,
+            'key': code,
+            'label': g.get('label', code),
+            'safe': g.get('safe'),
+            'watch': g.get('watch'),
+            'direction': g.get('direction'),
+            'unit': g.get('unit', 'x'),
+            'basis': 'قاعدة مالية عامة إرشادية',
+            'confidence': 'إرشادي',
+        }
+    return {'available': False, 'basis': 'لا يوجد معيار مدمج لهذا المؤشر', 'confidence': '—'}
+
+
+def _benchmark_range_text(b: dict) -> str:
+    if not b or not b.get('available'):
+        return 'لا يوجد معيار مدمج'
+    unit = b.get('unit', '%')
+    safe = _fmt_benchmark_value(b.get('safe'), unit)
+    watch = _fmt_benchmark_value(b.get('watch'), unit)
+    direction = b.get('direction')
+    if direction == 'lower':
+        return f"آمن ≤ {safe} | مراقبة ≤ {watch}"
+    if direction == 'band':
+        return f"إرشادي حول {safe} | راقب بعد {watch}"
+    return f"آمن ≥ {safe} | مراقبة ≥ {watch}"
+
+
+def _benchmark_status_for_value(code: str, value, profile: dict | None = None) -> tuple[str, str]:
+    b = _benchmark_for_metric(code, profile)
+    n = _as_number(value, None)
+    if n is None:
+        return 'غير محسوب', 'لا توجد قيمة صالحة للمقارنة.'
+    if not b.get('available'):
+        return 'إرشادي', 'لا يوجد معيار مدمج؛ اعتمد المقارنة الداخلية أولًا.'
+    safe = _as_number(b.get('safe'), None)
+    watch = _as_number(b.get('watch'), None)
+    direction = b.get('direction')
+    if safe is None or watch is None:
+        return 'إرشادي', 'المعيار غير مكتمل.'
+    if direction == 'lower':
+        if n <= safe:
+            return 'ضمن الآمن', 'القيمة ضمن النطاق الآمن الإرشادي.'
+        if n <= watch:
+            return 'مراقبة', 'القيمة أعلى من الآمن لكنها لم تصل لمستوى خطر.'
+        return 'خطر', 'القيمة تتجاوز نطاق المراقبة وتحتاج إجراء.'
+    if direction == 'band':
+        if n <= watch:
+            return 'مقبول', 'القيمة ضمن نطاق مقبول مبدئيًا، لكن الحكم يعتمد على شروط الموردين والتحصيل.'
+        return 'مراقبة', 'القيمة مرتفعة؛ تأكد أنها ليست نتيجة تأخر سداد ضار بالعلاقات أو السمعة.'
+    # higher is better
+    if n >= safe:
+        return 'ضمن الآمن', 'القيمة أعلى من حد الأمان الإرشادي.'
+    if n >= watch:
+        return 'مراقبة', 'القيمة مقبولة لكن هامش الأمان محدود.'
+    return 'خطر', 'القيمة أقل من نطاق المراقبة وتحتاج إجراء.'
+
+
+def _enrich_ratios_with_benchmarks(df: pd.DataFrame, full_model: dict | None = None, profile: dict | None = None) -> pd.DataFrame:
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    profile = profile or refresh_business_profile()
+    full_model = full_model or {}
+    out = df.copy()
+    codes = out.get('الكود', pd.Series([''] * len(out))).astype(str).tolist()
+    standards, comparisons, bases = [], [], []
+    for i, (_, row) in enumerate(out.iterrows()):
+        code = codes[i]
+        b = _benchmark_for_metric(code, profile)
+        val = _metric_current_value(full_model, row.to_dict(), code)
+        status, note = _benchmark_status_for_value(code, val, profile)
+        standards.append(_benchmark_range_text(b))
+        comparisons.append(status)
+        bases.append(b.get('basis', '—'))
+    out['المعيار بجانب النسبة'] = standards
+    out['مقارنة بالمعيار'] = comparisons
+    out['نوع المعيار'] = bases
+    return out
+
+
+def _trend_badge_from_value(value) -> str:
+    txt = str(value or '').strip()
+    if txt in ['', '—', '-', 'nan', 'None']:
+        return '—'
+    n = _as_number(txt, None)
+    if n is None:
+        return '—'
+    # If the value came as 12.0 after stripping %, it means 12%, not 1200%.
+    if '%' in txt:
+        pass
+    if n > 0:
+        return '▲ ارتفاع'
+    if n < 0:
+        return '▼ انخفاض'
+    return '▬ ثابت'
+
+
+def _add_trend_indicator(df: pd.DataFrame) -> pd.DataFrame:
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    out = df.copy()
+    trend_cols = [c for c in out.columns if any(k in str(c) for k in ['نمو', 'تغير', 'نسبة التغير'])]
+    if trend_cols and 'مؤشر الاتجاه' not in out.columns:
+        out.insert(0, 'مؤشر الاتجاه', out[trend_cols[-1]].apply(_trend_badge_from_value))
+    return out
+
+
+def _ratio_source_note(full_model: dict, code: str) -> str:
+    period = (full_model.get('source_of_truth_report', {}) or {}).get('period', {}) if full_model else {}
+    days = period.get('period_days') or '—'
+    basis = period.get('period_basis') or 'غير محدد'
+    notes = {
+        'current_ratio': 'من المركز المالي: الأصول المتداولة ÷ الالتزامات المتداولة.',
+        'quick_ratio': 'من المركز المالي: النقد + العملاء ÷ الالتزامات المتداولة. لا يعتمد على المخزون.',
+        'cash_ratio': 'من المركز المالي: النقد ÷ الالتزامات المتداولة. يقيس السداد الفوري فقط.',
+        'working_capital': 'من المركز المالي: الأصول المتداولة - الالتزامات المتداولة.',
+        'dso': f'تقديري من ميزان المراجعة: رصيد العملاء ÷ متوسط المبيعات اليومية. أيام الفترة المستخدمة: {days}، الأساس: {basis}. الدقة ترتفع عند رفع أعمار العملاء أو رصيد أول/آخر الفترة.',
+        'receivables_turnover': 'تقديري من المبيعات ورصيد العملاء. لا يعطي أسماء العملاء أو أولويات التحصيل دون تقرير أعمار العملاء.',
+        'dpo': f'تقديري من ميزان المراجعة: الموردون ÷ متوسط تكلفة المبيعات اليومية. أيام الفترة المستخدمة: {days}، الأساس: {basis}. الدقة ترتفع عند رفع أعمار الموردين.',
+        'ccc': 'DSO + DIO - DPO. لا يُعتمد كقرار نهائي إذا كانت DSO/DPO/DIO تقديرية أو ناقصة.',
+    }
+    return notes.get(code, 'مصدر الرقم موضح في حارس المؤشر.')
+
+
+def _cost_line_status(category: str, ratio_value, profile: dict | None = None) -> str:
+    cat = str(category or '').lower()
+    if 'cost' in cat or 'cogs' in cat or 'تكلفة' in cat:
+        code = 'cogs_ratio'
+    elif 'marketing' in cat or 'selling' in cat or 'تسويق' in cat or 'بيع' in cat:
+        code = 'sm_ratio'
+    else:
+        code = 'opex_ratio'
+    status, _ = _benchmark_status_for_value(code, ratio_value, profile)
+    return status
+
+
 def _has_inventory_context(full_model: dict, profile: dict | None = None) -> bool:
     profile = profile or refresh_business_profile()
     sector_text = " ".join([str(profile.get(k, '')) for k in ['sector','activity','business_model','sales_channel']]).lower()
@@ -373,7 +587,7 @@ def _render_lux_table(df: pd.DataFrame, columns: list[str] | None = None, max_ro
             val = r.get(col, '')
             txt = _fmt_cell(val)
             cls = ''
-            if str(col) in ['الحكم', 'درجة الثقة', 'حالة المؤشر', 'مستوى الخطورة']:
+            if str(col) in ['الحكم', 'درجة الثقة', 'حالة المؤشر', 'حالة القراءة', 'مستوى الخطورة', 'مقارنة بالمعيار', 'مؤشر الاتجاه']:
                 txt = _badge(txt)
                 cls = ' class="tag-cell"'
             tds.append(f'<td{cls}>{txt}</td>')
@@ -558,7 +772,7 @@ def _ratio_action(code: str, result: str = "") -> str:
     return actions.get(code, "اربط المؤشر بسبب مالي واضح ثم حدد إجراء متابعة قابل للقياس.")
 
 
-def _pretty_ratio_table(guarded_df: pd.DataFrame, group: str | None = None, max_rows: int = 12):
+def _pretty_ratio_table(guarded_df: pd.DataFrame, group: str | None = None, max_rows: int = 12, full_model: dict | None = None, profile: dict | None = None):
     if guarded_df is None or guarded_df.empty:
         st.info("لا توجد نسب قابلة للعرض.")
         return
@@ -568,18 +782,26 @@ def _pretty_ratio_table(guarded_df: pd.DataFrame, group: str | None = None, max_
     if df.empty:
         st.info("لا توجد مؤشرات ضمن هذا المجال.")
         return
+    profile = profile or refresh_business_profile()
+    full_model = full_model or (st.session_state.models.get("comprehensive_model", {}) if st.session_state.get("models") else {})
     rows = []
     for _, r in df.head(max_rows).iterrows():
         code = str(r.get("الكود", ""))
         metric = str(r.get("المؤشر", ""))
+        val = _metric_current_value(full_model, r.to_dict(), code)
+        b = _benchmark_for_metric(code, profile)
+        status, note = _benchmark_status_for_value(code, val, profile)
         rows.append({
             "المؤشر": metric,
             "النتيجة": r.get("النتيجة", "—"),
+            "المعيار بجانب النسبة": _benchmark_range_text(b),
+            "مقارنة بالمعيار": status,
             "الحكم": r.get("الحكم", "—"),
             "المعنى لصاحب العمل": _ratio_meaning(code, metric),
             "الإجراء المقترح": _ratio_action(code, str(r.get("النتيجة", ""))),
             "مصدر الرقم": r.get("مصدر الحساب", r.get("المصدر الأساسي", "—")),
             "ثقة القراءة": r.get("درجة الثقة", "—"),
+            "ملاحظة المعيار": note,
         })
     _render_lux_table(pd.DataFrame(rows), max_rows=max_rows)
 
@@ -609,16 +831,8 @@ def render_ratio_decision_dashboard(ratio_df: pd.DataFrame, health: dict | None 
         with cols[i % 2]:
             _decision_card(d['icon'], d['title'], d['verdict'], d['evidence'], d['action'], d['tone'])
 
-    st.markdown("#### تفاصيل النسب عند الحاجة")
-    groups = []
-    if isinstance(guarded_df, pd.DataFrame) and not guarded_df.empty and "المجموعة" in guarded_df.columns:
-        preferred = ["الربحية", "السيولة", "المديونية والسلامة", "التحصيل ورأس المال العامل", "الدوران والكفاءة", "العائد", "جودة الربح"]
-        available = list(dict.fromkeys(guarded_df["المجموعة"].astype(str).tolist()))
-        groups = [g for g in preferred if g in available] + [g for g in available if g not in preferred]
-    for g in groups[:8]:
-        icon = "📈" if "ربح" in g else "💧" if "سيولة" in g else "🧱" if "مديون" in g else "🔁" if "دوران" in g or "تحصيل" in g else "📌"
-        with st.expander(f"{icon} {g} — عرض النسب ومعناها"):
-            _pretty_ratio_table(guarded_df, g, max_rows=8)
+    st.markdown("#### ماذا أراجع بعد القرار؟")
+    st.info("تم حذف جداول تفاصيل النسب من صفحة مؤشرات القرار حتى لا تتكرر مع صفحات التحليل. هذه الصفحة تبقى مختصرة للقرار التنفيذي، أما شرح كل نسبة ومعيارها فيظهر داخل التبويب المتخصص بها.")
 
     gaps = guarded_df[guarded_df["حالة المؤشر"].astype(str).eq("غير قابل للحساب")] if isinstance(guarded_df, pd.DataFrame) and not guarded_df.empty and "حالة المؤشر" in guarded_df.columns else pd.DataFrame()
     if not gaps.empty:
@@ -669,7 +883,7 @@ def render_vertical_horizontal_executive(full_model: dict):
     st.markdown("#### افتح التفاصيل حسب الحاجة")
     with st.expander("📊 قائمة الدخل الرأسي — النسب ومعناها"):
         if isinstance(vi, pd.DataFrame) and not vi.empty:
-            # Keep the table compact and decision-oriented.
+            st.caption("التحليل الرأسي يشرح الوزن النسبي لكل بند من الإيراد. لا يظهر سهم ارتفاع/انخفاض هنا إلا عند توفر فترة مقارنة.")
             _render_lux_table(vi, max_rows=20)
             st.info("قراءة الصفحة: التحليل الرأسي لقائمة الدخل يعني تحويل كل بند إلى نسبة من الإيرادات حتى نعرف أين يذهب كل 100 ريال مبيعات.")
         else:
@@ -684,15 +898,15 @@ def render_vertical_horizontal_executive(full_model: dict):
 
     with st.expander("🔄 التحليل الأفقي — الاتجاه بين الفترات"):
         if isinstance(hm, pd.DataFrame) and not hm.empty:
-            st.caption("هذه قراءة اتجاه شهرية لأنها مبنية على بيانات شهرية.")
-            _render_lux_table(hm, max_rows=24)
+            st.caption("هذه قراءة اتجاه شهرية لأنها مبنية على بيانات شهرية. أضفنا مؤشر اتجاه سريع بجانب صفوف التغير.")
+            _render_lux_table(_add_trend_indicator(hm), max_rows=24)
         else:
-            st.warning("لا يوجد تحليل أفقي لقائمة الدخل حاليًا؛ لأن الفترة المقارنة أو البيانات الشهرية غير متاحة. نحتاج ميزان فترة سابقة أو مبيعات/مصروفات شهرية.")
+            st.warning("لا يوجد تحليل أفقي لقائمة الدخل حاليًا؛ لأن الفترة المقارنة أو البيانات الشهرية غير متاحة. نحتاج ميزان فترة سابقة أو مبيعات/مصروفات شهرية لإظهار ارتفاع/انخفاض فعلي.")
 
     with st.expander("📌 أكبر حركات الحسابات داخل الفترة — ليست تحليلًا أفقيًا"):
         if isinstance(hb, pd.DataFrame) and not hb.empty:
-            st.caption("هذه حركات داخل الفترة وليست تحليل اتجاه. تفيد في اكتشاف الحسابات الكبيرة التي تحركت، لكنها لا تعادل مقارنة سنة بسنة.")
-            _render_lux_table(hb, max_rows=20)
+            st.caption("هذه حركات داخل الفترة وليست تحليل اتجاه. أضفنا مؤشر اتجاه بصري للحركة، لكنها لا تعادل مقارنة سنة بسنة.")
+            _render_lux_table(_add_trend_indicator(hb), max_rows=20)
         else:
             st.info("لا توجد حركات حسابات كافية للعرض.")
 
@@ -700,13 +914,29 @@ def render_liquidity_decision_view(full_model: dict, liq_model: dict | None):
     ratio_df = full_model.get("ratios", pd.DataFrame())
     balance = full_model.get("balance_sheet", {})
     metrics = balance.get("metrics", {}) if balance else {}
+    profile = refresh_business_profile()
     st.markdown("#### نسب السيولة من ميزان المراجعة")
-    st.caption("نسب التداول والسريعة والنقدية تُحسب من المركز المالي ولا تحتاج كشف بنك. كشف البنك أو تقرير السيولة يضيف حركة نقدية وRunway فقط.")
+    st.caption("نسب التداول والسريعة والنقدية تُحسب من المركز المالي ولا تحتاج كشف بنك. لكنها تقيس السيولة المحاسبية لا حركة النقد اليومية. كشف البنك أو تقرير السيولة يضيف Runway والتدفق النقدي الفعلي.")
     c1, c2, c3, c4 = st.columns(4)
     with c1: kpi_card("نسبة التداول", _ratio_result(ratio_df, "current_ratio"), _ratio_status(ratio_df, "current_ratio"))
     with c2: kpi_card("النسبة السريعة", _ratio_result(ratio_df, "quick_ratio"), _ratio_status(ratio_df, "quick_ratio"))
     with c3: kpi_card("نسبة النقدية", _ratio_result(ratio_df, "cash_ratio"), _ratio_status(ratio_df, "cash_ratio"))
     with c4: kpi_card("رأس المال العامل", _ratio_result(ratio_df, "working_capital"), "من الميزان")
+
+    explanation_rows = []
+    for code, name in [("current_ratio", "نسبة التداول"), ("quick_ratio", "النسبة السريعة"), ("cash_ratio", "نسبة النقدية"), ("working_capital", "رأس المال العامل")]:
+        row = _ratio_row(ratio_df, code)
+        val = _metric_current_value(full_model, row, code)
+        status, note = _benchmark_status_for_value(code, val, profile)
+        explanation_rows.append({
+            "النسبة": name,
+            "النتيجة": row.get("النتيجة", "—") if row else "—",
+            "المعيار بجانب النسبة": _benchmark_range_text(_benchmark_for_metric(code, profile)),
+            "مقارنة بالمعيار": status,
+            "ماذا تعني؟": _ratio_source_note(full_model, code),
+            "قراءة لصاحب العمل": note,
+        })
+    _render_lux_table(pd.DataFrame(explanation_rows), max_rows=8, title="شرح نسب السيولة ومصدرها")
 
     cash = (liq_model or {}).get("cash", {}) if liq_model else {}
     if cash.get("available"):
@@ -728,13 +958,34 @@ def render_liquidity_decision_view(full_model: dict, liq_model: dict | None):
 
 def render_collection_turnover_view(full_model: dict, liq_model: dict | None):
     ratio_df = full_model.get("ratios", pd.DataFrame())
+    profile = refresh_business_profile()
+    has_ar_file = bool((liq_model or {}).get("ar", {}).get("available")) if liq_model else False
+    has_ap_file = bool((liq_model or {}).get("ap", {}).get("available")) if liq_model else False
     st.markdown("#### مؤشرات التحصيل والدوران")
-    st.caption("يُحتسب DSO فقط إذا ظهر رصيد عملاء مدين صالح. إذا كان حساب العملاء دائنًا أو غير واضح، فلا يظهر الرقم كأنه جيد؛ أعمار العملاء تعطي الأسماء والأولوية.")
+    st.caption("أيام التحصيل والسداد من ميزان المراجعة وحده هي قراءة تقديرية لأنها تعتمد غالبًا على رصيد آخر الفترة ومتوسط مبيعات يومي. تصبح قراءة تنفيذية عند رفع أعمار العملاء/الموردين أو أرصدة أول وآخر الفترة.")
     c1, c2, c3, c4 = st.columns(4)
-    with c1: kpi_card("أيام التحصيل DSO", _ratio_result(ratio_df, "dso"), _ratio_status(ratio_df, "dso"))
+    dso_status = (_ratio_status(ratio_df, "dso") + (" | تقديري" if not has_ar_file else " | مدعوم بأعمار العملاء"))
+    dpo_status = (_ratio_status(ratio_df, "dpo") + (" | تقديري" if not has_ap_file else " | مدعوم بأعمار الموردين"))
+    with c1: kpi_card("أيام التحصيل DSO", _ratio_result(ratio_df, "dso"), dso_status)
     with c2: kpi_card("دوران الذمم", _ratio_result(ratio_df, "receivables_turnover"), _ratio_status(ratio_df, "receivables_turnover"))
-    with c3: kpi_card("أيام السداد DPO", _ratio_result(ratio_df, "dpo"), _ratio_status(ratio_df, "dpo"))
+    with c3: kpi_card("أيام السداد DPO", _ratio_result(ratio_df, "dpo"), dpo_status)
     with c4: kpi_card("دورة النقد CCC", _ratio_result(ratio_df, "ccc"), _ratio_status(ratio_df, "ccc"))
+
+    basis_rows = []
+    for code, name in [("dso", "أيام التحصيل DSO"), ("receivables_turnover", "دوران الذمم"), ("dpo", "أيام السداد DPO"), ("ccc", "دورة النقد CCC")]:
+        row = _ratio_row(ratio_df, code)
+        val = _metric_current_value(full_model, row, code)
+        status, note = _benchmark_status_for_value(code, val, profile)
+        basis_rows.append({
+            "المؤشر": name,
+            "النتيجة": row.get("النتيجة", "—") if row else "—",
+            "المعيار بجانب النسبة": _benchmark_range_text(_benchmark_for_metric(code, profile)),
+            "مقارنة بالمعيار": status,
+            "مصدر/طريقة الحساب": _ratio_source_note(full_model, code),
+            "درجة الاعتماد": "تنفيذي" if ((code in ["dso", "receivables_turnover"] and has_ar_file) or (code == "dpo" and has_ap_file)) else "تقديري من الميزان",
+            "ملاحظة": note,
+        })
+    _render_lux_table(pd.DataFrame(basis_rows), max_rows=8, title="أساس أرقام التحصيل والدوران")
 
     ar = (liq_model or {}).get("ar", {}) if liq_model else {}
     if ar.get("available"):
@@ -749,6 +1000,8 @@ def render_collection_turnover_view(full_model: dict, liq_model: dict | None):
 def render_cost_structure_view(expense_model: dict | None, full_model: dict):
     mgmt = full_model.get("management_pnl", {}) or {}
     ratio_df = full_model.get("ratios", pd.DataFrame())
+    profile = refresh_business_profile()
+    revenue = _as_number(mgmt.get("revenue"), 0.0) or _as_number(_metric_raw_value(full_model, "revenue"), 0.0)
     st.markdown("#### هيكل التكلفة من ميزان المراجعة والتصنيف")
     c1, c2, c3, c4 = st.columns(4)
     with c1: kpi_card("تكلفة الإيراد", _ratio_result(ratio_df, "cogs_ratio"), "من الإيراد")
@@ -756,14 +1009,31 @@ def render_cost_structure_view(expense_model: dict | None, full_model: dict):
     with c3: kpi_card("البيع والتسويق", _ratio_result(ratio_df, "sm_ratio"), "من الإيراد")
     with c4: kpi_card("هامش التشغيل", _ratio_result(ratio_df, "operating_margin"), _ratio_status(ratio_df, "operating_margin"))
 
+    cost_ratio_rows = []
+    for code, label in [("cogs_ratio", "تكلفة الإيراد"), ("admin_ratio", "المصاريف الإدارية"), ("sm_ratio", "البيع والتسويق"), ("opex_ratio", "إجمالي المصاريف التشغيلية")]:
+        row = _ratio_row(ratio_df, code)
+        val = _metric_current_value(full_model, row, code)
+        status, note = _benchmark_status_for_value(code, val, profile)
+        cost_ratio_rows.append({
+            "البند": label,
+            "النسبة من الإيراد": row.get("النتيجة", "—") if row else "—",
+            "المعيار بجانب النسبة": _benchmark_range_text(_benchmark_for_metric(code, profile)),
+            "مقارنة بالقطاع": status,
+            "ملاحظة": note,
+        })
+    _render_lux_table(pd.DataFrame(cost_ratio_rows), max_rows=8, title="المصاريف كنسبة من الإيراد مع المعيار بجانبها")
+
     if mgmt and isinstance(mgmt.get("management_table"), pd.DataFrame) and not mgmt.get("management_table").empty:
         with st.expander("قائمة الدخل الإدارية وهيكل التكلفة", expanded=True):
-            st.dataframe(mgmt.get("management_table"), use_container_width=True, hide_index=True)
+            mt = mgmt.get("management_table").copy()
+            if "القيمة" in mt.columns and revenue:
+                mt["نسبة من الإيراد"] = pd.to_numeric(mt["القيمة"], errors="coerce").fillna(0).apply(lambda x: f"{(x/revenue)*100:.1f}%")
+            _render_lux_table(mt, max_rows=20)
     segment = full_model.get("segment_analysis", {}) or {}
     if isinstance(segment.get("segment_table"), pd.DataFrame) and not segment.get("segment_table").empty:
         st.markdown("#### مسارات النشاط المكتشفة من الحسابات")
         st.caption("هذه القراءة عامة لكل القطاعات: تفصل المسارات أو المشاريع أو القنوات عندما تظهر في الحسابات، ولا تعتمد على ملف واحد أو اسم ثابت.")
-        st.dataframe(segment.get("segment_table"), use_container_width=True, hide_index=True)
+        _render_lux_table(segment.get("segment_table"), max_rows=15)
     warnings = (segment.get("warnings") or []) + ((full_model.get("balance_quality_flags", {}) or {}).get("flags", []) or [])
     if warnings:
         for w in warnings:
@@ -776,11 +1046,18 @@ def render_cost_structure_view(expense_model: dict | None, full_model: dict):
         cat_df = expense_model.get("by_category", pd.DataFrame()).copy()
         top_df = expense_model.get("top_expenses", pd.DataFrame()).copy()
         if isinstance(cat_df, pd.DataFrame) and not cat_df.empty:
+            cat_df["نسبة من الإيراد"] = pd.to_numeric(cat_df.get("amount", 0), errors="coerce").fillna(0).apply(lambda x: "—" if not revenue else f"{(x/revenue)*100:.1f}%")
+            cat_df["مقارنة بالقطاع"] = cat_df.apply(lambda r: _cost_line_status(r.get("category", ""), (pd.to_numeric(pd.Series([r.get("amount",0)]), errors="coerce").fillna(0).iloc[0] / revenue) if revenue else None, profile), axis=1)
+            cat_df = cat_df.rename(columns={"category": "التصنيف", "amount": "القيمة"})
             st.markdown("#### توزيع المصاريف حسب التصنيف")
-            st.dataframe(cat_df, use_container_width=True, hide_index=True)
+            _render_lux_table(cat_df, max_rows=20)
         if isinstance(top_df, pd.DataFrame) and not top_df.empty:
+            top_df["نسبة من الإيراد"] = pd.to_numeric(top_df.get("amount", 0), errors="coerce").fillna(0).apply(lambda x: "—" if not revenue else f"{(x/revenue)*100:.1f}%")
+            top_df["مقارنة بالقطاع"] = top_df.apply(lambda r: _cost_line_status(r.get("category", ""), (pd.to_numeric(pd.Series([r.get("amount",0)]), errors="coerce").fillna(0).iloc[0] / revenue) if revenue else None, profile), axis=1)
+            top_df = top_df.rename(columns={"account_name": "الحساب", "category": "التصنيف", "amount": "القيمة"})
             st.markdown("#### أكبر بنود المصاريف التي يجب مراجعتها")
-            st.dataframe(top_df, use_container_width=True, hide_index=True)
+            st.caption("كل بند يظهر بقيمته ونسبته من الإيراد. عند توفر سنة سابقة أو مصروفات شهرية، سيظهر مؤشر زيادة/نقصان بجانب البند بدل الاكتفاء بالقيمة الحالية.")
+            _render_lux_table(top_df, max_rows=15)
     else:
         st.info("لا توجد مصاريف قابلة للقراءة من الميزان أو ملف المصروفات.")
 
@@ -1563,17 +1840,33 @@ elif page == "5. مساحة التحليل":
 
         with tabs[2]:
             st.subheader("جودة الإيراد")
+            st.caption("جودة الإيراد ليست معادلة واحدة. من ميزان المراجعة نستطيع قياس نقاء الإيراد من الخصومات والمردودات، أما الاستدامة والتكرار والتركيز والتحصيل فتحتاج مبيعات تفصيلية وعملاء وأعمار ذمم.")
             rq_tb = full_model.get("revenue_quality_tb", {}) or {}
             if rq_tb.get("available"):
                 cards = rq_tb.get("cards", {}) or {}
-                c1,c2,c3,c4 = st.columns(4)
-                with c1: kpi_card("إجمالي المبيعات", f"{cards.get('gross_sales',0):,.0f}", "قبل الخصومات والمردودات")
-                with c2: kpi_card("الخصومات", f"{rq_tb.get('discounts',0):,.0f}", "تآكل قبل الصافي")
-                with c3: kpi_card("المردودات", f"{rq_tb.get('returns',0):,.0f}", "تآكل قبل الصافي")
+                gross_sales = _as_number(cards.get('gross_sales'), 0.0)
+                discounts = abs(_as_number(rq_tb.get('discounts'), 0.0))
+                returns = abs(_as_number(rq_tb.get('returns'), 0.0))
                 lr = rq_tb.get("leakage_ratio")
+                discount_rate = discounts / gross_sales if gross_sales else None
+                return_rate = returns / gross_sales if gross_sales else None
+                c1,c2,c3,c4,c5 = st.columns(5)
+                with c1: kpi_card("إجمالي المبيعات", f"{gross_sales:,.0f}", "قبل الخصومات والمردودات")
+                with c2: kpi_card("الخصومات", f"{discounts:,.0f}", "تآكل قبل الصافي")
+                with c3: kpi_card("المردودات", f"{returns:,.0f}", "تآكل قبل الصافي")
                 with c4: kpi_card("تآكل الإيراد", "—" if lr is None else f"{lr*100:.1f}%", "خصومات + مردودات")
-                render_insight_panel("قراءة جودة الإيراد من ميزان المراجعة", rq_tb.get("narrative", ""), "خطر" if (lr or 0) >= .20 else "متابعة", "افصل الخصومات والمردودات حسب نوع البيع والعميل والباقة قبل الحكم على نمو الإيراد.", ["ميزان المراجعة يكفي هنا لأنه يحتوي إجمالي المبيعات والخصومات والمردودات.", "ملف المبيعات التفصيلي يضيف تحليل العميل/الصنف/الشهر ولا يوقف القراءة الأساسية."])
-                st.dataframe(rq_tb.get("table", pd.DataFrame()), use_container_width=True, hide_index=True)
+                with c5: kpi_card("صافي المبيعات", f"{cards.get('net_sales',0):,.0f}", "بعد التآكل")
+
+                quality_rows = pd.DataFrame([
+                    {"البعد": "نقاء الإيراد", "المؤشر": "تآكل الإيراد", "المعادلة": "الخصومات + المردودات ÷ إجمالي المبيعات", "القيمة": "—" if lr is None else f"{lr*100:.1f}%", "هل يكفي ميزان المراجعة؟": "نعم إذا كانت حسابات الخصومات والمردودات منفصلة", "ماذا لا يثبت؟": "لا يثبت تكرار الإيراد أو تحصيله نقدًا"},
+                    {"البعد": "سياسة الخصم", "المؤشر": "نسبة الخصومات", "المعادلة": "الخصومات ÷ إجمالي المبيعات", "القيمة": "—" if discount_rate is None else f"{discount_rate*100:.1f}%", "هل يكفي ميزان المراجعة؟": "نعم كمؤشر إجمالي", "ماذا لا يثبت؟": "لا يوضح العميل أو المنتج أو سبب الخصم"},
+                    {"البعد": "المرتجعات", "المؤشر": "نسبة المردودات", "المعادلة": "المردودات ÷ إجمالي المبيعات", "القيمة": "—" if return_rate is None else f"{return_rate*100:.1f}%", "هل يكفي ميزان المراجعة؟": "نعم كمؤشر إجمالي", "ماذا لا يثبت؟": "لا يوضح مشاكل الجودة أو الفرع أو الصنف"},
+                    {"البعد": "التحصيل", "المؤشر": "تحول الإيراد إلى نقد", "المعادلة": "يتطلب ربط المبيعات بالتحصيل/الذمم", "القيمة": "غير محسوب من هذه الصفحة", "هل يكفي ميزان المراجعة؟": "لا", "ماذا لا يثبت؟": "لا يثبت أن المبيعات حصلت نقدًا"},
+                    {"البعد": "الاستدامة", "المؤشر": "تكرار الإيراد وتركيز العملاء", "المعادلة": "إيراد متكرر/إجمالي + أكبر عملاء/إجمالي", "القيمة": "غير محسوب", "هل يكفي ميزان المراجعة؟": "لا", "ماذا لا يثبت؟": "لا يثبت أن الإيراد سيستمر"},
+                ])
+                _render_lux_table(quality_rows, max_rows=10, title="معنى جودة الإيراد وما الذي يمكن حسابه من الميزان")
+                render_insight_panel("قراءة جودة الإيراد من ميزان المراجعة", rq_tb.get("narrative", ""), "خطر" if (lr or 0) >= .20 else "متابعة", "لا نطلق حكمًا كاملًا على جودة الإيراد من الخصومات والمردودات وحدها. نستخدمها كإنذار أولي، ثم نطلب ملف مبيعات تفصيلي وأعمار عملاء لقياس الاستدامة والتحصيل.", ["المعادلة الحالية صحيحة كمؤشر Revenue Leakage، لكنها ليست تعريف جودة الإيراد كاملًا.", "التحليل العالمي لجودة الإيراد يراجع الاستدامة، التكرار، التحصيل، الاعتراف بالإيراد، التركيز، والخصومات/المردودات."])
+                _render_lux_table(rq_tb.get("table", pd.DataFrame()), max_rows=20, title="مصادر أرقام جودة الإيراد من الميزان")
             elif revenue_model and not revenue_model.get("monthly_revenue", pd.DataFrame()).empty:
                 rev_monthly = revenue_model["monthly_revenue"].copy()
                 rev_monthly["revenue"] = pd.to_numeric(rev_monthly["revenue"], errors="coerce").fillna(0)
@@ -1608,16 +1901,18 @@ elif page == "5. مساحة التحليل":
             render_cost_structure_view(expense_model, full_model)
 
         with tabs[7]:
-            st.subheader("معايير القطاع بذكاء حذر")
+            st.subheader("معايير القطاع")
             profile = refresh_business_profile()
             guarded = build_metric_guard_report(full_model.get("ratios", pd.DataFrame()), full_model.get("metric_pack", {}), profile, st.session_state.files, full_model)
+            enriched = _enrich_ratios_with_benchmarks(guarded, full_model, profile)
             benchmark = build_benchmark_intelligence(profile, guarded)
-            render_insight_panel("Benchmark Intelligence", benchmark["narrative"], "إرشادي", "ابدأ بالمقارنة الداخلية ثم فعّل المصادر الخارجية الموثقة لاحقًا.", ["لا يوجد Benchmark خارجي يدخل الحكم النهائي دون مصدر وفترة وثقة.", "المعايير الحالية داخلية إرشادية وليست معيارًا عالميًا موثقًا."])
-            st.markdown("#### خريطة المعايير الإرشادية")
-            st.dataframe(benchmark.get("advisory_table", pd.DataFrame()), use_container_width=True, hide_index=True)
+            render_insight_panel("كيف تُستخدم المعايير؟", "تم دمج المعيار بجانب كل نسبة داخل صفحات التحليل، لأن صاحب العمل لا يحتاج جدول Benchmarks منفصلًا عن النسبة. هذه الصفحة أصبحت منهجية مراجعة وليست مكان الحكم الأساسي.", "إرشادي", "اعتمد المقارنة الداخلية أولًا، ثم استخدم معيار القطاع كإشارة مساعدة، ولا تجعل المعيار الخارجي حكمًا نهائيًا دون مصدر موثق وفترة مقارنة.", ["المعايير الحالية إرشادية داخلية وليست Benchmark عالمي موثق.", "عند إضافة سنة سابقة أو قاعدة عملاء مجمعة يمكن تحويلها إلى مقارنة داخلية أقوى."])
+            if isinstance(enriched, pd.DataFrame) and not enriched.empty:
+                cols = [c for c in ["المجموعة", "المؤشر", "النتيجة", "المعيار بجانب النسبة", "مقارنة بالمعيار", "نوع المعيار", "درجة الثقة", "ملاحظة CMA"] if c in enriched.columns]
+                _render_lux_table(enriched[cols], max_rows=30, title="النسب الحالية ومعيارها بجانبها")
             if not benchmark.get("internal_priority", pd.DataFrame()).empty:
                 st.markdown("#### المقارنة الداخلية أولًا")
-                st.dataframe(benchmark.get("internal_priority"), use_container_width=True, hide_index=True)
+                _render_lux_table(benchmark.get("internal_priority"), max_rows=10)
 
         with tabs[8]:
             st.subheader("دليل النسب")
