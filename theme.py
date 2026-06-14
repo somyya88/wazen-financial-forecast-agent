@@ -736,6 +736,38 @@ def apply_theme():
     .v132-badge.danger { background:#FEF3F2; color:#B42318; border:1px solid #FECDCA; }
     .v132-badge.neutral { background:#F2F4F7; color:#475467; border:1px solid #EAECF0; }
 
+
+
+    /* V13.6 decision rationale and comparison cards */
+    .v131-decision-benchmark, .v131-decision-basis {
+        color:#344054; line-height:1.75; font-size:13.5px; margin-top:5px;
+        background:#F8FBFF; border:1px solid #E6EEF9; border-radius:12px; padding:7px 10px;
+    }
+    .v131-decision-basis { background:#FFFCF5; border-color:#FFE6B8; }
+    .v136-method-card {
+        background:#fff; border:1px solid #E3EAF6; border-radius:22px; padding:18px 20px;
+        margin:14px 0 20px; box-shadow:0 16px 42px rgba(16,24,40,.055); border-right:7px solid #CBD5E1;
+    }
+    .v136-method-card.ok { border-right-color:#12B76A; }
+    .v136-method-card.warning { border-right-color:#FAA61A; }
+    .v136-method-card.danger { border-right-color:#D92D20; }
+    .v136-method-title { color:#0B2E63; font-size:18px; font-weight:950; margin-bottom:6px; }
+    .v136-method-status { display:inline-block; color:#17479E; background:#F3F7FF; border:1px solid #C8D8F5; border-radius:999px; padding:5px 12px; font-weight:900; margin-bottom:8px; }
+    .v136-method-card p { color:#475467; line-height:1.9; margin:8px 0 0; }
+    .v136-analysis-card {
+        background:#fff; border:1px solid #E3EAF6; border-radius:22px; padding:18px 20px; min-height:130px;
+        margin:10px 0 16px; box-shadow:0 16px 42px rgba(16,24,40,.055); border-right:7px solid #CBD5E1;
+    }
+    .v136-analysis-card.ok { border-right-color:#12B76A; }
+    .v136-analysis-card.warning { border-right-color:#FAA61A; }
+    .v136-analysis-card.danger { border-right-color:#D92D20; }
+    .v136-analysis-card span { display:block; color:#667085; font-weight:900; font-size:14px; margin-bottom:8px; }
+    .v136-analysis-card strong { display:block; color:#17479E; font-weight:950; font-size:28px; line-height:1.25; margin-bottom:8px; }
+    .v136-analysis-card.ok strong { color:#067647; }
+    .v136-analysis-card.warning strong { color:#B54708; }
+    .v136-analysis-card.danger strong { color:#B42318; }
+    .v136-analysis-card em { display:block; color:#475467; font-style:normal; line-height:1.7; font-size:13.5px; }
+
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)

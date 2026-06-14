@@ -301,6 +301,8 @@ BENCHMARK_KEY_MAP = {
 }
 
 GENERIC_RATIO_BENCHMARKS = {
+    "operating_margin": {"safe": 0.10, "watch": 0.00, "direction": "higher", "unit": "%", "label": "هامش تشغيل"},
+    "net_margin": {"safe": 0.07, "watch": 0.03, "direction": "higher", "unit": "%", "label": "صافي هامش"},
     "current_ratio": {"safe": 1.50, "watch": 1.00, "direction": "higher", "unit": "x", "label": "سيولة قصيرة الأجل"},
     "quick_ratio": {"safe": 1.00, "watch": 0.60, "direction": "higher", "unit": "x", "label": "سيولة سريعة"},
     "cash_ratio": {"safe": 0.50, "watch": 0.20, "direction": "higher", "unit": "x", "label": "غطاء نقدي فوري"},
@@ -625,7 +627,155 @@ def _cogs_formula_info(full_model: dict) -> dict:
     return {'status':'تحتاج تحديد', 'tone':'warning', 'formula':'مخزون أول المدة + صافي المشتريات - مخزون آخر المدة', 'note':'إذا كان النشاط يبيع بضاعة أو لديه مخزون، لا تعتمد المشتريات وحدها كتلكفة مبيعات. اطلب مخزون أول وآخر الفترة أو حساب تكلفة مبيعات مقفل من الميزان.'}
 
 
-def _decision_card(icon: str, title: str, verdict: str, evidence: str, action: str, tone: str = 'warning'):
+
+def _render_cogs_quality_note(full_model: dict, compact: bool = True):
+    """Professional COGS note. The formula is not exposed as a primitive visual block.
+    It is kept as audit methodology inside an expander only.
+    """
+    info = _cogs_formula_info(full_model)
+    title = 'تكلفة الإيراد / تكلفة البضاعة'
+    if compact:
+        st.markdown(f"""
+        <div class="v136-method-card {info['tone']}">
+            <div class="v136-method-title">{_html_escape(title)}</div>
+            <div class="v136-method-status">{_html_escape(info['status'])}</div>
+            <p>{_html_escape(info['note'])}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with st.expander("منهجية التحقق من تكلفة الإيراد"):
+        st.write("يعتمد الإيجنت على هذه القاعدة داخليًا عند وجود مخزون، لكنه لا يجعلها حكمًا نهائيًا إلا إذا كانت عناصر المخزون والمشتريات مقروءة بوضوح.")
+        st.table(pd.DataFrame([
+            {"العنصر": "مخزون أول المدة", "القيمة المقروءة": _money0((full_model.get('management_pnl', {}) or {}).get('opening_inventory', 0))},
+            {"العنصر": "صافي المشتريات / التكلفة المباشرة", "القيمة المقروءة": _money0((full_model.get('management_pnl', {}) or {}).get('net_purchases', 0))},
+            {"العنصر": "مخزون آخر المدة", "القيمة المقروءة": _money0((full_model.get('management_pnl', {}) or {}).get('ending_inventory', 0))},
+            {"العنصر": "تكلفة الإيراد المعتمدة", "القيمة المقروءة": _money0((full_model.get('management_pnl', {}) or {}).get('cogs', 0))},
+        ]))
+
+
+def _leaf_tb_rows(tb_model: dict | None) -> pd.DataFrame:
+    work = (tb_model or {}).get('tb', pd.DataFrame())
+    if not isinstance(work, pd.DataFrame) or work.empty:
+        return pd.DataFrame()
+    out = work.copy()
+    if 'account_code_norm' in out.columns:
+        codes = out['account_code_norm'].astype(str).tolist()
+        def is_parent(c):
+            c = str(c or '')
+            return bool(c) and any(o != c and str(o).startswith(c) and len(str(o)) > len(c) for o in codes)
+        out = out[~out['account_code_norm'].astype(str).apply(is_parent)].copy()
+    return out
+
+
+def _tb_income_amounts(tb_model: dict | None) -> dict:
+    pnl = ((tb_model or {}).get('income_statement', {}) or {}).get('pnl', pd.DataFrame())
+    if not isinstance(pnl, pd.DataFrame) or pnl.empty:
+        return {}
+    out = {}
+    for _, r in pnl.iterrows():
+        key = str(r.get('English') or r.get('العربي') or '')
+        out[key] = _as_number(r.get('Amount'), 0.0) or 0.0
+    return out
+
+
+def _pct_change(current, previous):
+    c = _as_number(current, 0.0) or 0.0
+    p = _as_number(previous, 0.0) or 0.0
+    if abs(p) < 1e-9:
+        return None
+    return (c - p) / abs(p)
+
+
+def _fmt_change_pct(x):
+    n = _as_number(x, None)
+    return '—' if n is None else f"{n*100:.1f}%"
+
+
+def _trend_from_numbers(current, previous, inverse: bool = False) -> str:
+    c = _as_number(current, 0.0) or 0.0
+    p = _as_number(previous, 0.0) or 0.0
+    if abs(c - p) < 1e-9:
+        return '▬ ثابت'
+    up = c > p
+    if inverse:
+        return '▲ ارتفاع غير مرغوب' if up else '▼ انخفاض إيجابي'
+    return '▲ ارتفاع' if up else '▼ انخفاض'
+
+
+def _build_prior_tb_comparison(current_tb_model: dict | None, previous_tb_model: dict | None, current_label: str = 'الفترة الحالية', previous_label: str = 'الفترة السابقة') -> dict:
+    if not current_tb_model or not previous_tb_model:
+        return {"available": False, "reason": "لا يوجد ميزان مراجعة لفترة مقارنة."}
+    cur_income = _tb_income_amounts(current_tb_model)
+    prev_income = _tb_income_amounts(previous_tb_model)
+    keys = [
+        ('Net Sales', 'صافي المبيعات', False),
+        ('Total Revenue', 'إجمالي الإيرادات', False),
+        ('COGS', 'تكلفة الإيراد / المبيعات', True),
+        ('Gross Profit', 'مجمل الربح', False),
+        ('Operating Expenses', 'المصاريف التشغيلية', True),
+        ('EBITDA', 'EBITDA', False),
+        ('Finance Costs', 'تكاليف التمويل', True),
+        ('Tax / Zakat', 'الزكاة والضريبة', True),
+        ('Net Profit', 'صافي الربح', False),
+    ]
+    income_rows = []
+    for key, label, inverse in keys:
+        cur = cur_income.get(key, 0.0)
+        prev = prev_income.get(key, 0.0)
+        ch = cur - prev
+        pct = _pct_change(cur, prev)
+        income_rows.append({
+            'البند': label,
+            previous_label: prev,
+            current_label: cur,
+            'التغير': ch,
+            'نسبة التغير': _fmt_change_pct(pct),
+            'مؤشر الاتجاه': _trend_from_numbers(cur, prev, inverse=inverse),
+        })
+    income_df = pd.DataFrame(income_rows)
+
+    cur_rows = _leaf_tb_rows(current_tb_model)
+    prev_rows = _leaf_tb_rows(previous_tb_model)
+    balance_df = pd.DataFrame()
+    if not cur_rows.empty and not prev_rows.empty:
+        for df in [cur_rows, prev_rows]:
+            if 'account_key_cmp' not in df.columns:
+                pass
+        def prep(df):
+            d = df.copy()
+            key_col = 'account_code_norm' if 'account_code_norm' in d.columns and d['account_code_norm'].astype(str).str.len().gt(0).any() else 'account_name'
+            d['cmp_key'] = d[key_col].astype(str)
+            d['الحساب'] = d.get('account_name', pd.Series(dtype=str)).astype(str)
+            d['closing_signed'] = pd.to_numeric(d.get('current_debit', 0), errors='coerce').fillna(0) - pd.to_numeric(d.get('current_credit', 0), errors='coerce').fillna(0)
+            if 'category' in d.columns:
+                d['التصنيف'] = d['category'].astype(str)
+            else:
+                d['التصنيف'] = '—'
+            return d[['cmp_key','الحساب','التصنيف','closing_signed']]
+        c = prep(cur_rows).rename(columns={'closing_signed': current_label})
+        p = prep(prev_rows).rename(columns={'closing_signed': previous_label})
+        merged = pd.merge(c, p[['cmp_key', previous_label]], on='cmp_key', how='outer')
+        merged['الحساب'] = merged['الحساب'].fillna(merged['cmp_key'])
+        merged[current_label] = pd.to_numeric(merged[current_label], errors='coerce').fillna(0)
+        merged[previous_label] = pd.to_numeric(merged[previous_label], errors='coerce').fillna(0)
+        merged['التغير'] = merged[current_label] - merged[previous_label]
+        merged['نسبة التغير'] = merged.apply(lambda r: _fmt_change_pct(_pct_change(r[current_label], r[previous_label])), axis=1)
+        merged['مؤشر الاتجاه'] = merged.apply(lambda r: _trend_from_numbers(r[current_label], r[previous_label]), axis=1)
+        balance_df = merged.reindex(merged['التغير'].abs().sort_values(ascending=False).index).head(25)[['الحساب','التصنيف', previous_label, current_label, 'التغير','نسبة التغير','مؤشر الاتجاه']]
+
+    summary = {
+        'revenue_change_pct': _pct_change(cur_income.get('Total Revenue', 0), prev_income.get('Total Revenue', 0)),
+        'gross_profit_change_pct': _pct_change(cur_income.get('Gross Profit', 0), prev_income.get('Gross Profit', 0)),
+        'net_profit_change_pct': _pct_change(cur_income.get('Net Profit', 0), prev_income.get('Net Profit', 0)),
+        'expense_change_pct': _pct_change(cur_income.get('Operating Expenses', 0), prev_income.get('Operating Expenses', 0)),
+        'current_label': current_label,
+        'previous_label': previous_label,
+    }
+    return {"available": True, "income": income_df, "balance": balance_df, "summary": summary, "reason": "تمت المقارنة بين ميزاني مراجعة لفترتين/سنتين."}
+
+
+def _decision_card(icon: str, title: str, verdict: str, evidence: str, action: str, tone: str = 'warning', benchmark: str = '', basis: str = ''):
+    benchmark_html = f'<div class="v131-decision-benchmark"><strong>معيار الحكم:</strong> {_html_escape(benchmark)}</div>' if benchmark else ''
+    basis_html = f'<div class="v131-decision-basis"><strong>مصدر المعيار:</strong> {_html_escape(basis)}</div>' if basis else ''
     st.markdown(f"""
     <div class="v131-decision-card {tone}">
         <div class="v131-decision-icon">{_html_escape(icon)}</div>
@@ -633,6 +783,8 @@ def _decision_card(icon: str, title: str, verdict: str, evidence: str, action: s
             <div class="v131-decision-title">{_html_escape(title)}</div>
             <div class="v131-decision-verdict">{_html_escape(verdict)}</div>
             <div class="v131-decision-evidence"><strong>الدليل:</strong> {_html_escape(evidence)}</div>
+            {benchmark_html}
+            {basis_html}
             <div class="v131-decision-action"><strong>الإجراء:</strong> {_html_escape(action)}</div>
         </div>
     </div>
@@ -653,14 +805,8 @@ def render_sources_audit_page(full_model: dict, guarded_df: pd.DataFrame | None 
     with c3:
         _summary_tile('🧠', 'ثقة التشخيص', layers['diagnosis'], layers['diagnosis_note'], 'ok' if layers['diagnosis']=='مرتفعة' else 'warning')
 
-    st.markdown("#### معادلة تكلفة البضاعة / تكلفة الإيراد")
-    st.markdown(f"""
-    <div class="v132-formula-card {cogs_info['tone']}">
-      <div><span>حالة المعادلة</span><strong>{_html_escape(cogs_info['status'])}</strong></div>
-      <div><span>المعادلة</span><strong dir="ltr">{_html_escape(cogs_info['formula'])}</strong></div>
-      <p>{_html_escape(cogs_info['note'])}</p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("#### تحقق تكلفة الإيراد")
+    _render_cogs_quality_note(full_model, compact=True)
 
     data_reading = full_model.get("data_reading", pd.DataFrame())
     if isinstance(data_reading, pd.DataFrame) and not data_reading.empty:
@@ -689,6 +835,29 @@ def render_sources_audit_page(full_model: dict, guarded_df: pd.DataFrame | None 
         with st.expander("🏦 المركز المالي التحليلي ومصدره"):
             _render_lux_table(bs.get("balance_sheet", pd.DataFrame()), max_rows=20)
 
+def _basis_for_decision(code: str, value, profile: dict | None = None) -> dict:
+    """Return the explicit basis behind an owner decision card."""
+    profile = profile or refresh_business_profile()
+    b = _benchmark_for_metric(code, profile)
+    status, note = _benchmark_status_for_value(code, value, profile)
+    return {
+        "status": status,
+        "note": note,
+        "benchmark": _benchmark_range_text(b),
+        "basis": b.get("basis", "منطق مالي داخلي"),
+        "confidence": b.get("confidence", "إرشادي"),
+    }
+
+
+def _decision_tone_from_status(status: str) -> str:
+    t = str(status or '')
+    if any(k in t for k in ['خطر', 'ضعيف', 'أقل', 'تتجاوز']):
+        return 'danger'
+    if any(k in t for k in ['مراقبة', 'إرشادي', 'مقبول', 'محدود']):
+        return 'warning'
+    return 'ok'
+
+
 def _build_decisions(full_model: dict, guarded_df: pd.DataFrame | None = None) -> list[dict]:
     gm = _metric_value(full_model, 'gross_margin')
     cogs = _metric_value(full_model, 'cogs_ratio')
@@ -699,40 +868,99 @@ def _build_decisions(full_model: dict, guarded_df: pd.DataFrame | None = None) -
     dr = _metric_value(full_model, 'debt_ratio')
     current = _metric_value(full_model, 'current_ratio')
     inventory_sensitive = _has_inventory_context(full_model)
+    profile = refresh_business_profile()
 
     decisions = []
+
+    # 1) Profit model: do not label it acceptable without showing the benchmark.
+    gm_basis = _basis_for_decision('gross_margin', gm, profile)
+    cogs_basis = _basis_for_decision('cogs_ratio', cogs, profile)
     if cogs is not None and cogs >= 1:
-        action = 'تحقق من تكلفة البضاعة المباعة والمخزون قبل اعتماد الهامش.' if inventory_sensitive else 'افصل تكلفة تقديم الخدمة عن المصاريف العامة وراجع التسعير.'
-        decisions.append({'icon':'🧮','title':'هل نموذج الربح يعمل؟','verdict':'خطر: تكلفة الإيراد تتجاوز الإيراد','evidence':f"تكلفة الإيراد {_pct0(cogs)} / هامش مجمل الربح {_pct0(gm)}",'action':action,'tone':'danger'})
-    elif gm is not None and gm < .20:
-        decisions.append({'icon':'🧮','title':'هل نموذج الربح يعمل؟','verdict':'ضعيف: الهامش الإجمالي لا يعطي مساحة كافية','evidence':f"هامش مجمل الربح {_pct0(gm)}",'action':'راجع التسعير والتكلفة المباشرة قبل التركيز على الإدارة فقط.','tone':'warning'})
+        action = 'ثبّت تكلفة البضاعة/الخدمة من الحسابات أو المخزون قبل اعتماد الهامش.' if inventory_sensitive else 'افصل التكلفة المباشرة عن المصاريف العامة وراجع التسعير.'
+        decisions.append({
+            'icon':'🧮', 'title':'هل نموذج الربح يعمل؟',
+            'verdict':'خطر: تكلفة الإيراد تتجاوز الإيراد',
+            'evidence':f"تكلفة الإيراد {_pct0(cogs)} / هامش مجمل الربح {_pct0(gm)}",
+            'benchmark':cogs_basis['benchmark'], 'basis':f"{cogs_basis['basis']} — {cogs_basis['confidence']}",
+            'action':action, 'tone':'danger'
+        })
     else:
-        decisions.append({'icon':'🧮','title':'هل نموذج الربح يعمل؟','verdict':'مقبول مبدئيًا','evidence':f"هامش مجمل الربح {_pct0(gm)}",'action':'انتقل لفحص التشغيل والسيولة حتى لا يخفي الهامش مشكلة نقدية.','tone':'ok'})
+        tone = _decision_tone_from_status(gm_basis['status'])
+        verdict = f"{gm_basis['status']}" if gm is not None else 'غير محسوم قبل قراءة الهامش'
+        decisions.append({
+            'icon':'🧮', 'title':'هل نموذج الربح يعمل؟',
+            'verdict':verdict,
+            'evidence':f"هامش مجمل الربح {_pct0(gm)}",
+            'benchmark':gm_basis['benchmark'], 'basis':f"{gm_basis['basis']} — {gm_basis['confidence']}",
+            'action':'ثبّت تكلفة البضاعة/الخدمة أولًا، ثم اربط الهامش حسب المنتج أو المشروع أو الفرع عند توفر التفصيل.',
+            'tone':tone
+        })
 
+    # 2) Operating model.
+    op_basis = _basis_for_decision('operating_margin', op, profile)
     if op is not None and op < 0:
-        decisions.append({'icon':'⚙️','title':'هل التشغيل مربح؟','verdict':'خطر: التشغيل خاسر','evidence':f"هامش التشغيل {_pct0(op)} وصافي الهامش {_pct0(nm)}",'action':'راجع المصاريف التشغيلية غير المرتبطة مباشرة بالإيراد وخفف البنود غير المنتجة.','tone':'danger'})
+        decisions.append({
+            'icon':'⚙️', 'title':'هل التشغيل مربح؟',
+            'verdict':'خطر: التشغيل خاسر',
+            'evidence':f"هامش التشغيل {_pct0(op)} وصافي الهامش {_pct0(nm)}",
+            'benchmark':op_basis['benchmark'], 'basis':f"{op_basis['basis']} — {op_basis['confidence']}",
+            'action':'راجع المصاريف التشغيلية غير المرتبطة مباشرة بالإيراد وخفف البنود غير المنتجة.',
+            'tone':'danger'
+        })
     else:
-        decisions.append({'icon':'⚙️','title':'هل التشغيل مربح؟','verdict':'قابل للمتابعة','evidence':f"هامش التشغيل {_pct0(op)}",'action':'اربط كل بند تشغيلي بمؤشر مبيعات أو إنتاجية.','tone':'ok'})
+        tone = _decision_tone_from_status(op_basis['status'])
+        decisions.append({
+            'icon':'⚙️', 'title':'هل التشغيل مربح؟',
+            'verdict':op_basis['status'],
+            'evidence':f"هامش التشغيل {_pct0(op)}",
+            'benchmark':op_basis['benchmark'], 'basis':f"{op_basis['basis']} — {op_basis['confidence']}",
+            'action':'اربط كل بند تشغيلي بمؤشر مبيعات أو إنتاجية، ولا تعتمد على الهامش وحده.',
+            'tone':tone
+        })
 
-    if (qr is not None and qr < .6) or (cr is not None and cr < .2):
-        decisions.append({'icon':'💧','title':'هل النقد يكفي للالتزامات القريبة؟','verdict':'خطر سيولة سريع','evidence':f"Quick Ratio {_as_number(qr,0):.2f}x / Cash Ratio {_as_number(cr,0):.2f}x / Current Ratio {_as_number(current,0):.2f}x",'action':'لا تعتمد على نسبة التداول وحدها؛ جهّز خطة سيولة قصيرة وجدولة سداد.','tone':'danger'})
-    else:
-        decisions.append({'icon':'💧','title':'هل النقد يكفي؟','verdict':'السيولة مقبولة مبدئيًا','evidence':f"Quick Ratio {_as_number(qr,0):.2f}x / Cash Ratio {_as_number(cr,0):.2f}x",'action':'اربط السيولة بتقرير النقد والتحصيل عند توفره.','tone':'ok'})
+    # 3) Liquidity: use the weakest of quick/cash/current and show exact benchmark.
+    liquidity_code, liquidity_value = ('quick_ratio', qr)
+    if cr is not None and (qr is None or cr < qr):
+        liquidity_code, liquidity_value = ('cash_ratio', cr)
+    liq_basis = _basis_for_decision(liquidity_code, liquidity_value, profile)
+    liq_tone = _decision_tone_from_status(liq_basis['status'])
+    decisions.append({
+        'icon':'💧', 'title':'هل النقد يكفي؟',
+        'verdict':liq_basis['status'],
+        'evidence':f"Quick Ratio {_as_number(qr,0):.2f}x / Cash Ratio {_as_number(cr,0):.2f}x / Current Ratio {_as_number(current,0):.2f}x",
+        'benchmark':liq_basis['benchmark'], 'basis':f"{liq_basis['basis']} — {liq_basis['confidence']}",
+        'action':'اربط السيولة بكشف البنك وتقرير التحصيل عند توفرهما؛ نسب الميزان لا تكشف توقيت النقد اليومي.',
+        'tone':liq_tone
+    })
 
-    if dr is not None and dr > .80:
-        decisions.append({'icon':'🧱','title':'هل المديونية آمنة؟','verdict':'خطر رافعة مالية مرتفعة','evidence':f"الالتزامات إلى الأصول {_pct0(dr)}",'action':'تجنب التزامات جديدة قبل تحسين الهامش والسيولة.','tone':'danger'})
-    elif dr is not None and dr > .65:
-        decisions.append({'icon':'🧱','title':'هل المديونية آمنة؟','verdict':'تحتاج متابعة','evidence':f"الالتزامات إلى الأصول {_pct0(dr)}",'action':'راقب الالتزامات قصيرة الأجل وربطها بتحصيل نقدي واضح.','tone':'warning'})
+    # 4) Debt safety only when available.
+    if dr is not None:
+        debt_basis = _basis_for_decision('debt_ratio', dr, profile)
+        decisions.append({
+            'icon':'🧱', 'title':'هل المديونية آمنة؟',
+            'verdict':debt_basis['status'],
+            'evidence':f"الالتزامات إلى الأصول {_pct0(dr)}",
+            'benchmark':debt_basis['benchmark'], 'basis':f"{debt_basis['basis']} — {debt_basis['confidence']}",
+            'action':'قارن الالتزامات قصيرة الأجل بخطة التحصيل والسداد قبل أي تمويل أو التزام جديد.',
+            'tone':_decision_tone_from_status(debt_basis['status'])
+        })
 
+    # 5) Data gap: show only when real gaps exist; not as filler.
     gaps = []
-    if isinstance(guarded_df, pd.DataFrame) and not guarded_df.empty:
+    if isinstance(guarded_df, pd.DataFrame) and not guarded_df.empty and 'حالة المؤشر' in guarded_df.columns:
         gaps = guarded_df[guarded_df['حالة المؤشر'].astype(str).eq('غير قابل للحساب')]['المؤشر'].astype(str).head(3).tolist()
     if gaps or inventory_sensitive:
-        decisions.append({'icon':'🧩','title':'ما فجوة القرار؟','verdict':'القراءة تحتاج تدعيمًا قبل القرار النهائي','evidence':('، '.join(gaps) if gaps else 'تكلفة الإيراد تحتاج تحققًا من المخزون/التكلفة'), 'action':'أضف ملفات السيولة/المخزون/الأعمار حسب الفجوة، ولا تحوّل المؤشر الناقص إلى صفر.', 'tone':'warning'})
+        decisions.append({
+            'icon':'🧩', 'title':'ما فجوة القرار؟',
+            'verdict':'تحتاج تدعيمًا قبل القرار النهائي',
+            'evidence':('، '.join(gaps) if gaps else 'تكلفة الإيراد تحتاج تحققًا من المخزون/التكلفة'),
+            'benchmark':'لا يوجد معيار؛ هذه بطاقة جودة بيانات لا بطاقة نسبة.',
+            'basis':'حارس المؤشرات ومصادر البيانات',
+            'action':'أضف الملف الناقص حسب الفجوة، ولا تحوّل المؤشر غير المتاح إلى صفر.',
+            'tone':'warning'
+        })
 
-    # Ensure maximum five cards
     return decisions[:5]
-
 
 def _ratio_meaning(code: str, metric_name: str = "") -> str:
     meanings = {
@@ -825,41 +1053,61 @@ def render_ratio_decision_dashboard(ratio_df: pd.DataFrame, health: dict | None 
         _summary_tile('🧠', 'ثقة التشخيص', layers['diagnosis'], layers['diagnosis_note'], 'ok' if layers['diagnosis']=='مرتفعة' else 'warning')
 
     st.markdown("#### بطاقات القرار")
-    st.caption("كل بطاقة تمثل قرارًا إداريًا. اضغط على تفاصيل المجال أسفل البطاقات لرؤية النسب ومعناها.")
+    st.caption("كل بطاقة تعرض الحكم مع الدليل والمعيار الذي استند إليه. التفاصيل الرقمية الكاملة موجودة داخل تبويب كل مجال.")
     cols = st.columns(2)
     for i, d in enumerate(decisions):
         with cols[i % 2]:
-            _decision_card(d['icon'], d['title'], d['verdict'], d['evidence'], d['action'], d['tone'])
+            _decision_card(d['icon'], d['title'], d['verdict'], d['evidence'], d['action'], d['tone'], d.get('benchmark',''), d.get('basis',''))
 
-    st.markdown("#### ماذا أراجع بعد القرار؟")
-    st.info("تم حذف جداول تفاصيل النسب من صفحة مؤشرات القرار حتى لا تتكرر مع صفحات التحليل. هذه الصفحة تبقى مختصرة للقرار التنفيذي، أما شرح كل نسبة ومعيارها فيظهر داخل التبويب المتخصص بها.")
+    with st.expander("منطق احتساب بطاقات القرار"):
+        logic_rows = []
+        for d in decisions:
+            logic_rows.append({
+                "البطاقة": d.get('title','—'),
+                "الحكم الظاهر": d.get('verdict','—'),
+                "الدليل المستخدم": d.get('evidence','—'),
+                "المعيار": d.get('benchmark','—'),
+                "مصدر المعيار": d.get('basis','—'),
+                "الإجراء": d.get('action','—'),
+            })
+        _render_lux_table(pd.DataFrame(logic_rows), max_rows=8)
 
     gaps = guarded_df[guarded_df["حالة المؤشر"].astype(str).eq("غير قابل للحساب")] if isinstance(guarded_df, pd.DataFrame) and not guarded_df.empty and "حالة المؤشر" in guarded_df.columns else pd.DataFrame()
     if not gaps.empty:
-        with st.expander("🧩 بيانات إضافية ترفع دقة القرار"):
+        with st.expander("🧩 بيانات إضافية ترفع موثوقية القرار"):
             gap_rows = []
             for _, r in gaps.head(10).iterrows():
                 gap_rows.append({
                     "المؤشر": r.get("المؤشر", "—"),
-                    "لماذا لا يظهر كرقم؟": r.get("ملاحظة CMA", "مدخلات غير مكتملة"),
-                    "المطلوب": r.get("المطلوب للحساب", "—"),
+                    "سبب عدم الاعتماد": r.get("ملاحظة CMA", "مدخلات غير مكتملة"),
+                    "البيان المطلوب": r.get("المطلوب للحساب", "—"),
                     "المصدر المقترح": r.get("المصدر الأساسي", "—"),
                 })
             _render_lux_table(pd.DataFrame(gap_rows), max_rows=10)
+
+def _analysis_card(title: str, value: str, note: str, tone: str = 'neutral'):
+    st.markdown(f"""
+    <div class="v136-analysis-card {tone}">
+        <span>{_html_escape(title)}</span>
+        <strong>{_html_escape(value)}</strong>
+        <em>{_html_escape(note)}</em>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 def render_vertical_horizontal_executive(full_model: dict):
     vi = full_model.get("vertical_income", pd.DataFrame())
     vb = full_model.get("vertical_balance", pd.DataFrame())
     hm = full_model.get("horizontal_monthly", pd.DataFrame())
     hb = full_model.get("horizontal_balance", pd.DataFrame())
+    comp = full_model.get("comparative_analysis", {}) or {}
 
-    st.caption("هذه الصفحة لا تبدأ بجدول. تبدأ بملخص بصري يشرح أين يذهب كل 100 ريال، ثم تظهر الجداول عند الضغط.")
+    st.caption("الهدف هنا ليس عرض جدول خام، بل تلخيص هيكل الربح والمركز المالي ثم فتح الجداول التفصيلية عند الحاجة.")
     cogs = _metric_value(full_model, 'cogs_ratio')
     gm = _metric_value(full_model, 'gross_margin')
     op = _metric_value(full_model, 'operating_margin')
     nm = _metric_value(full_model, 'net_margin')
     opex = _metric_value(full_model, 'opex_ratio')
-    cogs_info = _cogs_formula_info(full_model)
 
     st.markdown("#### من كل 100 ريال مبيعات")
     st.markdown(f"""
@@ -872,40 +1120,65 @@ def render_vertical_horizontal_executive(full_model: dict):
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"""
-    <div class="v132-formula-card {cogs_info['tone']}">
-      <div><span>حالة تكلفة البضاعة / الخدمة</span><strong>{_html_escape(cogs_info['status'])}</strong></div>
-      <div><span>معادلة الجرد الدوري عند وجود مخزون</span><strong dir="ltr">{_html_escape(cogs_info['formula'])}</strong></div>
-      <p>{_html_escape(cogs_info['note'])}</p>
-    </div>
-    """, unsafe_allow_html=True)
+    _render_cogs_quality_note(full_model, compact=True)
 
-    st.markdown("#### افتح التفاصيل حسب الحاجة")
-    with st.expander("📊 قائمة الدخل الرأسي — النسب ومعناها"):
+    if comp.get('available'):
+        st.markdown("#### مقارنة السنة الحالية مع السنة السابقة")
+        summary = comp.get('summary', {}) or {}
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            _analysis_card("نمو الإيراد", _fmt_change_pct(summary.get('revenue_change_pct')), f"{summary.get('previous_label','السابق')} → {summary.get('current_label','الحالي')}", 'ok' if (_as_number(summary.get('revenue_change_pct'), 0) or 0) >= 0 else 'danger')
+        with c2:
+            _analysis_card("تغير مجمل الربح", _fmt_change_pct(summary.get('gross_profit_change_pct')), "يقيس أثر التسعير والتكلفة المباشرة", 'ok' if (_as_number(summary.get('gross_profit_change_pct'), 0) or 0) >= 0 else 'danger')
+        with c3:
+            _analysis_card("تغير مصاريف التشغيل", _fmt_change_pct(summary.get('expense_change_pct')), "ارتفاعها يحتاج مبررًا تشغيليًا", 'warning' if (_as_number(summary.get('expense_change_pct'), 0) or 0) > 0 else 'ok')
+        with c4:
+            _analysis_card("تغير صافي الربح", _fmt_change_pct(summary.get('net_profit_change_pct')), "أهم نتيجة مقارنة", 'ok' if (_as_number(summary.get('net_profit_change_pct'), 0) or 0) >= 0 else 'danger')
+    elif comp.get('reason'):
+        st.info(comp.get('reason'))
+
+    st.markdown("#### التحليلات التفصيلية")
+    st.caption("اختاري بطاقة التحليل المطلوبة لعرض الجدول. الأسهم تظهر فقط عندما توجد فترة مقارنة أو تغير فعلي.")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        _analysis_card("قائمة الدخل الرأسي", "متاح" if isinstance(vi, pd.DataFrame) and not vi.empty else "غير متاح", "يوضح أين يذهب كل 100 ريال من الإيراد", 'ok' if isinstance(vi, pd.DataFrame) and not vi.empty else 'warning')
+    with c2:
+        _analysis_card("المركز المالي الرأسي", "متاح" if isinstance(vb, pd.DataFrame) and not vb.empty else "غير متاح", "يوضح تركيب الأصول والالتزامات والتمويل", 'ok' if isinstance(vb, pd.DataFrame) and not vb.empty else 'warning')
+    c3, c4 = st.columns(2)
+    with c3:
+        _analysis_card("المقارنة الأفقية سنة بسنة", "متاحة" if comp.get('available') else "تحتاج سنة مقارنة", "تقارن ميزان المراجعة الحالي بالسابق", 'ok' if comp.get('available') else 'warning')
+    with c4:
+        _analysis_card("أكبر حركات الحسابات", "متاحة" if isinstance(hb, pd.DataFrame) and not hb.empty else "غير متاحة", "حركات داخل الفترة وليست بديلًا عن المقارنة", 'warning')
+
+    with st.expander("استعراض جدول قائمة الدخل الرأسي"):
         if isinstance(vi, pd.DataFrame) and not vi.empty:
-            st.caption("التحليل الرأسي يشرح الوزن النسبي لكل بند من الإيراد. لا يظهر سهم ارتفاع/انخفاض هنا إلا عند توفر فترة مقارنة.")
             _render_lux_table(vi, max_rows=20)
-            st.info("قراءة الصفحة: التحليل الرأسي لقائمة الدخل يعني تحويل كل بند إلى نسبة من الإيرادات حتى نعرف أين يذهب كل 100 ريال مبيعات.")
+            st.info("التحليل الرأسي يحول كل بند إلى نسبة من الإيراد. لا يظهر سهم ارتفاع/انخفاض لأنه يقرأ فترة واحدة فقط.")
         else:
             st.info("التحليل الرأسي لقائمة الدخل غير متاح قبل بناء قائمة دخل من الميزان أو ملفات التشغيل.")
 
-    with st.expander("🏦 المركز المالي الرأسي — تركيب الأصول والالتزامات"):
+    with st.expander("استعراض جدول المركز المالي الرأسي"):
         if isinstance(vb, pd.DataFrame) and not vb.empty:
             _render_lux_table(vb, max_rows=20)
-            st.info("قراءة الصفحة: التحليل الرأسي للمركز المالي يوضح وزن النقد، المخزون، العملاء، والالتزامات داخل هيكل الأصول والتمويل.")
+            st.info("التحليل الرأسي للمركز المالي يوضح وزن النقد، المخزون، العملاء، والالتزامات داخل هيكل الأصول والتمويل.")
         else:
             st.info("المركز المالي غير متاح.")
 
-    with st.expander("🔄 التحليل الأفقي — الاتجاه بين الفترات"):
-        if isinstance(hm, pd.DataFrame) and not hm.empty:
-            st.caption("هذه قراءة اتجاه شهرية لأنها مبنية على بيانات شهرية. أضفنا مؤشر اتجاه سريع بجانب صفوف التغير.")
+    with st.expander("استعراض جدول المقارنة الأفقية بين السنوات"):
+        if comp.get('available') and isinstance(comp.get('income'), pd.DataFrame) and not comp.get('income').empty:
+            _render_lux_table(comp.get('income'), max_rows=20, title="قائمة الدخل: مقارنة سنة بسنة")
+            if isinstance(comp.get('balance'), pd.DataFrame) and not comp.get('balance').empty:
+                _render_lux_table(comp.get('balance'), max_rows=25, title="أكبر تغيرات الحسابات في المركز المالي")
+        elif isinstance(hm, pd.DataFrame) and not hm.empty:
+            st.caption("لم يتم العثور على ميزان سنة سابقة، لذلك يعرض النظام الاتجاه الشهري من ملفات التشغيل المتاحة.")
             _render_lux_table(_add_trend_indicator(hm), max_rows=24)
         else:
-            st.warning("لا يوجد تحليل أفقي لقائمة الدخل حاليًا؛ لأن الفترة المقارنة أو البيانات الشهرية غير متاحة. نحتاج ميزان فترة سابقة أو مبيعات/مصروفات شهرية لإظهار ارتفاع/انخفاض فعلي.")
+            st.warning("لا توجد فترة مقارنة قابلة للقراءة. ارفعي ميزان مراجعة سنة سابقة أو ملف مبيعات/مصروفات شهري للمقارنة.")
 
-    with st.expander("📌 أكبر حركات الحسابات داخل الفترة — ليست تحليلًا أفقيًا"):
+    with st.expander("استعراض أكبر حركات الحسابات داخل الفترة"):
         if isinstance(hb, pd.DataFrame) and not hb.empty:
-            st.caption("هذه حركات داخل الفترة وليست تحليل اتجاه. أضفنا مؤشر اتجاه بصري للحركة، لكنها لا تعادل مقارنة سنة بسنة.")
+            st.caption("هذه حركات داخل الفترة وليست تحليلًا أفقيًا سنة بسنة. تُستخدم لتحديد الحسابات التي أثرت على الحركة خلال نفس الفترة.")
             _render_lux_table(_add_trend_indicator(hb), max_rows=20)
         else:
             st.info("لا توجد حركات حسابات كافية للعرض.")
@@ -1324,6 +1597,8 @@ def build_models_from_session(revenue_definition: str | None = None):
     tb_model = parse_trial_balance(tb_record) if tb_record else None
     previous_tb_model = parse_trial_balance(previous_tb_record) if previous_tb_record else None
     previous_revenue_model = build_revenue_model(previous_revenue_record, revenue_definition) if previous_revenue_record else None
+    current_year = _record_year(tb_record) if tb_record else None
+    previous_year = _record_year(previous_tb_record) if previous_tb_record else None
 
     # Expense detail files add monthly distribution. If absent, derive cost structure from the Trial Balance.
     preliminary_revenue_total = (revenue_model.get("total_revenue", 0) if revenue_model else 0) or ((tb_model or {}).get("income_statement", {}) or {}).get("total_revenue", 0)
@@ -1368,6 +1643,12 @@ def build_models_from_session(revenue_definition: str | None = None):
     )
     source_truth_report = build_source_of_truth_report(tb_model, revenue_model, expense_model, pnl_model, confirmed_months, profile_context)
     comprehensive_model["source_of_truth_report"] = source_truth_report
+    comprehensive_model["comparative_analysis"] = _build_prior_tb_comparison(
+        tb_model,
+        previous_tb_model,
+        current_label=str(current_year or "الفترة الحالية"),
+        previous_label=str(previous_year or "الفترة السابقة"),
+    )
 
     st.session_state.models = {
         "revenue_model": revenue_model,
@@ -1425,11 +1706,11 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V13.5</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V13.6</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("## Wazen V13.5")
+    st.markdown("## Wazen V13.6")
     st.caption("Financial Health & Action Intelligence")
     if st.session_state.get("nav_page") not in PAGE_OPTIONS:
         st.session_state.nav_page = PAGE_OPTIONS[0]
@@ -1445,7 +1726,7 @@ with st.sidebar:
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
     st.checkbox("تفعيل صياغة AI للملخص التنفيذي إذا كان المفتاح متاحًا", key="ai_narrative_enabled", value=st.session_state.get("ai_narrative_enabled", False))
-    st.caption("V13.5: Decision Ratio Benchmark UX + Source of Truth")
+    st.caption("V13.6: Decision Basis + Prior-Year Horizontal Analysis UX")
 
 
 # -----------------------------------------------------------------------------
@@ -1634,7 +1915,7 @@ elif page == "2. رفع الملفات والمطابقة":
 elif page == "3. جاهزية التحليل":
     section_header("3. قابلية التحليل من البيانات الحالية")
     render_hero("ما الذي يمكن استخراجه الآن؟", "هذه الصفحة تترجم الملفات المرفوعة إلى نطاق تحليل واضح: ماذا نستطيع تشخيصه بثقة، وما الذي يحتاج ملفًا إضافيًا قبل الاعتماد على التوقعات.")
-    render_sector_intelligence_panel(refresh_business_profile())
+    st.caption("سياق النشاط تم تثبيته في صفحة إعداد النشاط، ولن نكرر خريطة القطاع هنا إلا عند تعديل الإعدادات.")
 
     profile = build_readiness_profile(st.session_state.files, refresh_business_profile(), st.session_state.models)
     main_col, side_col = st.columns([2.7, 1])
@@ -1673,15 +1954,29 @@ elif page == "3. جاهزية التحليل":
         checks_df["الحالة"] = checks_df["الحالة"].replace({"متوفر": "✅ متوفر", "غير متوفر": "⚠️ غير متوفر"})
     st.dataframe(checks_df, use_container_width=True, hide_index=True)
 
-    st.markdown("### الملفات المقروءة")
-    uploaded_df = profile["uploaded_files"].copy()
-    if uploaded_df.empty:
-        st.info("لم يتم رفع ملفات بعد.")
+    st.markdown("### مصادر النموذج المعتمدة")
+    active_files = (st.session_state.models or {}).get("active_files", {}) if st.session_state.models else {}
+    if active_files:
+        rows = []
+        labels = {
+            "trial_balance": "ميزان المراجعة الحالي",
+            "previous_trial_balance": "ميزان المراجعة المقارن",
+            "revenue": "مصدر الإيرادات التفصيلي",
+            "expense": "مصدر المصاريف التفصيلي",
+            "previous_revenue": "إيرادات فترة مقارنة",
+        }
+        for k, v in active_files.items():
+            if v:
+                rows.append({"الدور في النموذج": labels.get(k, k), "الملف المعتمد": v})
+        if rows:
+            _render_lux_table(pd.DataFrame(rows), max_rows=8)
+        else:
+            st.info("تمت قراءة ملفات، لكن لم يتم اعتماد مصدر نموذج بعد. ابني النموذج من صفحة رفع الملفات.")
     else:
-        st.dataframe(uploaded_df, use_container_width=True, hide_index=True)
+        st.info("لم يتم بناء النموذج بعد. تفاصيل أدوار الملفات تبقى في صفحة الرفع والمطابقة فقط.")
 
-    st.markdown("### كيف نرفع دقة القرار؟")
-    st.caption("تظهر الملفات المقترحة في العمود الجانبي مع إمكانية إضافتها مباشرة دون الرجوع لصفحة الرفع.")
+    st.markdown("### بيانات إضافية ترفع موثوقية القرار")
+    st.caption("هذه ليست متطلبات تشغيل؛ هي ملفات تزيد دقة القرار عندما تكون متاحة.")
 
     if profile.get("branch_signal", {}).get("files"):
         st.markdown("### ملفات يظهر فيها أثر للفروع")
