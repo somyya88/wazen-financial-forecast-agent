@@ -4,7 +4,7 @@ V13.9 adds a dedicated AI executive diagnosis layer and hardens the app so UI co
 implicitly expected by app.py. Keep this file small and deterministic.
 """
 
-APP_NAME = "Wazen CFO Intelligence Agent V13.9"
+APP_NAME = "Wazen CFO Intelligence Agent V14.0"
 APP_VERSION = "13.9"
 DEFAULT_CURRENCY = "SAR"
 

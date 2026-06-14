@@ -138,7 +138,7 @@ def build_executive_kpis(pnl_model: dict, expense_model: dict | None = None):
         action = "تحسين هامش الربح"
         reason = f"هامش صافي الربح {net_margin*100:.1f}%"
     else:
-        action = "تثبيت الهامش قبل التوسع"
+        action = "تثبيت الهامش قبل أي التزام مالي جديد"
         reason = f"هامش صافي الربح {net_margin*100:.1f}%"
 
     return {

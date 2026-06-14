@@ -37,7 +37,7 @@ def build_action_center(models: dict | None, liquidity_model: dict | None, readi
         if overdue_pct > 0.25 or conc > 0.6:
             rows.append(["تحصيل", "خطر الذمم مركز أو متأخر", f"المتأخر {overdue_pct*100:.1f}%، تركيز أعلى 5 عملاء {conc*100:.1f}%", "ابدأ بالعملاء الأعلى رصيدًا في جدول الأولويات", "7-14 يوم", "Overdue AR / Top 5"])
         else:
-            rows.append(["تحصيل", "الذمم لا تظهر ضغطًا عاليًا", f"إجمالي العملاء {a.get('total_balance',0):,.0f}", "استمر في المتابعة الوقائية ولا توسع الائتمان دون سياسة", "شهري", "AR Aging"])
+            rows.append(["تحصيل", "الذمم لا تظهر ضغطًا عاليًا", f"إجمالي العملاء {a.get('total_balance',0):,.0f}", "استمر في المتابعة الوقائية ولا ترفع حدود الائتمان دون سياسة", "شهري", "AR Aging"])
 
     if readiness_profile and readiness_profile.get("score", 0) < 60:
         rows.append(["جودة بيانات", "دقة التوقع محدودة", f"جاهزية التحليل {readiness_profile.get('score')}%", "استكمل ملف السيولة/أعمار العملاء/مبيعات تفصيلية حسب النقص", "قبل الاعتماد النهائي", "درجة قابلية التحليل"])

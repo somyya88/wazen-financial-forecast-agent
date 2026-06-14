@@ -60,7 +60,7 @@ def _biggest_risk(ratios_df, score):
 def _next_decision(ratios_df, score):
     net_margin = float(ratios_df.loc[ratios_df["English"] == "Net Margin %", "Value"].iloc[0])
     if net_margin < 0:
-        return "القرار القادم: مراجعة أعلى بنود المصروفات قبل أي توسع جديد."
+        return "القرار القادم: مراجعة أعلى بنود المصروفات قبل أي التزام مالي جديد جديد."
     if net_margin < 0.05:
         return "القرار القادم: تحسين الهامش عبر التسعير أو خفض التكاليف المباشرة."
     return "القرار القادم: تثبيت الربحية وبناء توقعات نمو محافظة."

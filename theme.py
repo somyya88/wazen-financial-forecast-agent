@@ -926,6 +926,55 @@ def apply_theme():
     .v138-trend.danger { background:#FEF3F2; color:#B42318; border:1px solid #FECDCA; }
     .v138-trend.neutral { background:#F2F4F7; color:#475467; border:1px solid #EAECF0; }
 
+
+    /* V14.0 executive decision redesign */
+    .v140-page-note {
+        background: #EEF6FF;
+        border: 1px solid #CFE3FF;
+        color: #0B4A8B;
+        border-radius: 16px;
+        padding: 12px 16px;
+        margin: 10px 0 18px;
+        line-height: 1.8;
+        font-weight: 800;
+    }
+    .v140-decision-card {
+        position: relative;
+        background: linear-gradient(180deg,#FFFFFF 0%,#FBFCFF 100%);
+        border: 1px solid #DCE8F7;
+        border-radius: 24px;
+        padding: 18px 20px;
+        margin: 10px 0 16px;
+        min-height: 255px;
+        box-shadow: 0 18px 48px rgba(16,24,40,.06);
+        border-right: 7px solid #FAA61A;
+        direction: rtl;
+    }
+    .v140-decision-card.ok { border-right-color:#12B76A; }
+    .v140-decision-card.warning { border-right-color:#FAA61A; }
+    .v140-decision-card.danger { border-right-color:#D92D20; }
+    .v140-card-head { display:flex; align-items:flex-start; gap:12px; margin-bottom:13px; }
+    .v140-decision-icon {
+        width:48px; min-width:48px; height:48px; border-radius:17px;
+        background:#F3F7FF; display:flex; align-items:center; justify-content:center;
+        font-size:23px;
+    }
+    .v140-decision-title { color:#0B2E63; font-size:18px; font-weight:950; margin-bottom:4px; }
+    .v140-decision-verdict { font-size:18px; font-weight:950; color:#B54708; line-height:1.5; }
+    .v140-decision-card.ok .v140-decision-verdict { color:#067647; }
+    .v140-decision-card.danger .v140-decision-verdict { color:#B42318; }
+    .v140-decision-line, .v140-decision-action {
+        display:grid; grid-template-columns:82px 1fr; gap:8px;
+        border-top:1px solid #EEF2F7; padding-top:9px; margin-top:9px;
+        color:#344054; line-height:1.75; font-size:13.8px;
+    }
+    .v140-decision-line strong, .v140-decision-action strong { color:#17479E; font-weight:950; }
+    .v140-decision-action { background:#FFFCF5; border:1px solid #FFE6B8; border-radius:14px; padding:10px 12px; }
+    .v140-exec-diagnosis { border-right-color:#17479E; }
+    .v140-exec-diagnosis .ai-cfo-box { min-height: 150px; }
+    .v140-exec-diagnosis .ai-cfo-actions { background:#FFF9EC; }
+    @media(max-width: 900px){ .v140-decision-line, .v140-decision-action{ grid-template-columns:1fr; } }
+
 </style>
     """
     st.markdown(css, unsafe_allow_html=True)
