@@ -774,19 +774,29 @@ def _build_prior_tb_comparison(current_tb_model: dict | None, previous_tb_model:
 
 
 def _decision_card(icon: str, title: str, verdict: str, evidence: str, action: str, tone: str = 'warning', benchmark: str = '', basis: str = ''):
-    benchmark_html = f'<div class="v131-decision-benchmark"><strong>معيار الحكم:</strong> {_html_escape(benchmark)}</div>' if benchmark else ''
-    basis_html = f'<div class="v131-decision-basis"><strong>مصدر المعيار:</strong> {_html_escape(basis)}</div>' if basis else ''
+    """Decision card with hover rationale.
+    Visible layer stays executive; calculation basis appears as a hover tooltip.
+    """
+    tooltip = f"""
+        <div class="v137-decision-tooltip">
+            <div class="v137-tooltip-title">كيف صدر هذا الحكم؟</div>
+            <div><strong>الدليل المستخدم:</strong> {_html_escape(evidence)}</div>
+            <div><strong>معيار المقارنة:</strong> {_html_escape(benchmark or 'لا يوجد معيار مدمج لهذا البند')}</div>
+            <div><strong>مصدر المعيار:</strong> {_html_escape(basis or 'منطق مالي داخلي')}</div>
+            <div><strong>الإجراء المقترح:</strong> {_html_escape(action)}</div>
+        </div>
+    """
     st.markdown(f"""
-    <div class="v131-decision-card {tone}">
+    <div class="v131-decision-card {tone} v137-hover-card">
+        <div class="v137-hover-hint">ⓘ مرّر المؤشر لرؤية معيار الحكم</div>
         <div class="v131-decision-icon">{_html_escape(icon)}</div>
         <div class="v131-decision-body">
             <div class="v131-decision-title">{_html_escape(title)}</div>
             <div class="v131-decision-verdict">{_html_escape(verdict)}</div>
             <div class="v131-decision-evidence"><strong>الدليل:</strong> {_html_escape(evidence)}</div>
-            {benchmark_html}
-            {basis_html}
             <div class="v131-decision-action"><strong>الإجراء:</strong> {_html_escape(action)}</div>
         </div>
+        {tooltip}
     </div>
     """, unsafe_allow_html=True)
 
@@ -1035,7 +1045,7 @@ def _pretty_ratio_table(guarded_df: pd.DataFrame, group: str | None = None, max_
 
 
 def render_ratio_decision_dashboard(ratio_df: pd.DataFrame, health: dict | None = None, findings_df: pd.DataFrame | None = None):
-    st.caption("لوحة قرار مختصرة: القرار أولًا، ثم عند الضغط تظهر النسب ومعناها وجدول التفاصيل.")
+    st.caption("لوحة قرار تنفيذية. كل بطاقة تعتمد على رقم محدد ومعيار محدد؛ مرّر مؤشر الماوس فوق البطاقة لعرض منطق الحكم مباشرة.")
     profile = refresh_business_profile()
     full_model = st.session_state.models.get("comprehensive_model", {}) if st.session_state.get("models") else {}
     guarded_df = build_metric_guard_report(ratio_df, full_model.get("metric_pack", {}), profile, st.session_state.files, full_model)
@@ -1053,24 +1063,11 @@ def render_ratio_decision_dashboard(ratio_df: pd.DataFrame, health: dict | None 
         _summary_tile('🧠', 'ثقة التشخيص', layers['diagnosis'], layers['diagnosis_note'], 'ok' if layers['diagnosis']=='مرتفعة' else 'warning')
 
     st.markdown("#### بطاقات القرار")
-    st.caption("كل بطاقة تعرض الحكم مع الدليل والمعيار الذي استند إليه. التفاصيل الرقمية الكاملة موجودة داخل تبويب كل مجال.")
+    st.caption("الحكم المختصر ظاهر على البطاقة، أما المعيار وطريقة الاحتساب فتظهر مباشرة عند تمرير مؤشر الماوس فوق البطاقة.")
     cols = st.columns(2)
     for i, d in enumerate(decisions):
         with cols[i % 2]:
             _decision_card(d['icon'], d['title'], d['verdict'], d['evidence'], d['action'], d['tone'], d.get('benchmark',''), d.get('basis',''))
-
-    with st.expander("منطق احتساب بطاقات القرار"):
-        logic_rows = []
-        for d in decisions:
-            logic_rows.append({
-                "البطاقة": d.get('title','—'),
-                "الحكم الظاهر": d.get('verdict','—'),
-                "الدليل المستخدم": d.get('evidence','—'),
-                "المعيار": d.get('benchmark','—'),
-                "مصدر المعيار": d.get('basis','—'),
-                "الإجراء": d.get('action','—'),
-            })
-        _render_lux_table(pd.DataFrame(logic_rows), max_rows=8)
 
     gaps = guarded_df[guarded_df["حالة المؤشر"].astype(str).eq("غير قابل للحساب")] if isinstance(guarded_df, pd.DataFrame) and not guarded_df.empty and "حالة المؤشر" in guarded_df.columns else pd.DataFrame()
     if not gaps.empty:
@@ -1095,6 +1092,34 @@ def _analysis_card(title: str, value: str, note: str, tone: str = 'neutral'):
     """, unsafe_allow_html=True)
 
 
+def _pct_label(value):
+    n = _as_number(value, None)
+    return '—' if n is None else f"{n*100:.1f}%"
+
+
+def _structure_card(title: str, value: str, subtitle: str, reading: str, tone: str = 'neutral'):
+    st.markdown(f"""
+    <div class="v137-structure-card {tone}">
+        <div class="v137-structure-top">
+            <span>{_html_escape(title)}</span>
+            <strong>{_html_escape(value)}</strong>
+        </div>
+        <em>{_html_escape(subtitle)}</em>
+        <p>{_html_escape(reading)}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def _comparison_story_card(title: str, value: str, note: str, tone: str = 'neutral'):
+    st.markdown(f"""
+    <div class="v137-story-card {tone}">
+        <span>{_html_escape(title)}</span>
+        <strong>{_html_escape(value)}</strong>
+        <em>{_html_escape(note)}</em>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 def render_vertical_horizontal_executive(full_model: dict):
     vi = full_model.get("vertical_income", pd.DataFrame())
     vb = full_model.get("vertical_balance", pd.DataFrame())
@@ -1102,70 +1127,68 @@ def render_vertical_horizontal_executive(full_model: dict):
     hb = full_model.get("horizontal_balance", pd.DataFrame())
     comp = full_model.get("comparative_analysis", {}) or {}
 
-    st.caption("الهدف هنا ليس عرض جدول خام، بل تلخيص هيكل الربح والمركز المالي ثم فتح الجداول التفصيلية عند الحاجة.")
+    st.caption("هذه الصفحة تلخص بنية الربحية والمركز المالي واتجاه السنة الحالية مقارنة بالسنة السابقة. الجداول التفصيلية تظهر داخل التبويبات أسفل اللوحة.")
+
     cogs = _metric_value(full_model, 'cogs_ratio')
     gm = _metric_value(full_model, 'gross_margin')
     op = _metric_value(full_model, 'operating_margin')
     nm = _metric_value(full_model, 'net_margin')
     opex = _metric_value(full_model, 'opex_ratio')
 
-    st.markdown("#### من كل 100 ريال مبيعات")
-    st.markdown(f"""
-    <div class="v131-waterfall">
-        <div class="wf-step base"><span>صافي المبيعات</span><strong>100.0</strong><em>ريال</em></div>
-        <div class="wf-step cost"><span>تكلفة البضاعة / الخدمة</span><strong>{'—' if cogs is None else f'{cogs*100:.1f}'}</strong><em>ريال</em></div>
-        <div class="wf-step {'danger' if (gm is not None and gm < 0) else 'ok'}"><span>مجمل الربح</span><strong>{'—' if gm is None else f'{gm*100:.1f}'}</strong><em>ريال</em></div>
-        <div class="wf-step cost"><span>مصاريف التشغيل</span><strong>{'—' if opex is None else f'{opex*100:.1f}'}</strong><em>ريال</em></div>
-        <div class="wf-step {'danger' if (nm is not None and nm < 0) else 'ok'}"><span>صافي النتيجة</span><strong>{'—' if nm is None else f'{nm*100:.1f}'}</strong><em>ريال</em></div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("#### هيكل الربحية كنسبة من صافي الإيراد")
+    st.caption("التحليل الرأسي هنا لا يقول: كم ريال ربحنا فقط، بل يوضح وزن كل طبقة من قائمة الدخل من صافي الإيراد.")
+    cols = st.columns(5)
+    with cols[0]:
+        _structure_card("صافي الإيراد", "100%", "أساس القياس", "كل بند أدناه يُقاس كنسبة من هذا الرقم.", "base")
+    with cols[1]:
+        _structure_card("تكلفة الإيراد", _pct_label(cogs), "تكلفة مباشرة", "كلما ارتفعت ضغطت مجمل الربح والتسعير.", "warning" if cogs is not None and cogs > 0.70 else "neutral")
+    with cols[2]:
+        _structure_card("مجمل الربح", _pct_label(gm), "بعد التكلفة المباشرة", "يقيس قوة التسعير وكفاءة التكلفة قبل المصاريف.", "ok" if gm is not None and gm >= 0.25 else "warning")
+    with cols[3]:
+        _structure_card("مصاريف التشغيل", _pct_label(opex), "إدارة وبيع وتشغيل", "تحتاج ربطها بمبيعات أو إنتاجية حتى لا تصبح عبئًا ثابتًا.", "warning")
+    with cols[4]:
+        _structure_card("صافي النتيجة", _pct_label(nm), "بعد كل البنود", "يعكس النتيجة النهائية قبل تفسير البنود غير المتكررة.", "ok" if nm is not None and nm > 0 else "danger")
 
     _render_cogs_quality_note(full_model, compact=True)
 
+    st.markdown("#### مقارنة السنة الحالية بالسنة السابقة")
     if comp.get('available'):
-        st.markdown("#### مقارنة السنة الحالية مع السنة السابقة")
         summary = comp.get('summary', {}) or {}
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            _analysis_card("نمو الإيراد", _fmt_change_pct(summary.get('revenue_change_pct')), f"{summary.get('previous_label','السابق')} → {summary.get('current_label','الحالي')}", 'ok' if (_as_number(summary.get('revenue_change_pct'), 0) or 0) >= 0 else 'danger')
+            _comparison_story_card("نمو الإيراد", _fmt_change_pct(summary.get('revenue_change_pct')), f"{summary.get('previous_label','السابق')} → {summary.get('current_label','الحالي')}", 'ok' if (_as_number(summary.get('revenue_change_pct'), 0) or 0) >= 0 else 'danger')
         with c2:
-            _analysis_card("تغير مجمل الربح", _fmt_change_pct(summary.get('gross_profit_change_pct')), "يقيس أثر التسعير والتكلفة المباشرة", 'ok' if (_as_number(summary.get('gross_profit_change_pct'), 0) or 0) >= 0 else 'danger')
+            _comparison_story_card("تغير مجمل الربح", _fmt_change_pct(summary.get('gross_profit_change_pct')), "أثر التسعير والتكلفة المباشرة", 'ok' if (_as_number(summary.get('gross_profit_change_pct'), 0) or 0) >= 0 else 'danger')
         with c3:
-            _analysis_card("تغير مصاريف التشغيل", _fmt_change_pct(summary.get('expense_change_pct')), "ارتفاعها يحتاج مبررًا تشغيليًا", 'warning' if (_as_number(summary.get('expense_change_pct'), 0) or 0) > 0 else 'ok')
+            _comparison_story_card("تغير مصاريف التشغيل", _fmt_change_pct(summary.get('expense_change_pct')), "يحتاج تفسيرًا تشغيليًا عند الارتفاع", 'warning' if (_as_number(summary.get('expense_change_pct'), 0) or 0) > 0 else 'ok')
         with c4:
-            _analysis_card("تغير صافي الربح", _fmt_change_pct(summary.get('net_profit_change_pct')), "أهم نتيجة مقارنة", 'ok' if (_as_number(summary.get('net_profit_change_pct'), 0) or 0) >= 0 else 'danger')
+            _comparison_story_card("تغير صافي الربح", _fmt_change_pct(summary.get('net_profit_change_pct')), "أهم نتيجة مقارنة بعد كل البنود", 'ok' if (_as_number(summary.get('net_profit_change_pct'), 0) or 0) >= 0 else 'danger')
     elif comp.get('reason'):
         st.info(comp.get('reason'))
+    else:
+        st.info("لا توجد سنة مقارنة مقروءة بعد. ارفعي ميزان مراجعة سنة سابقة أو بيانات شهرية لإظهار الاتجاه.")
 
-    st.markdown("#### التحليلات التفصيلية")
-    st.caption("اختاري بطاقة التحليل المطلوبة لعرض الجدول. الأسهم تظهر فقط عندما توجد فترة مقارنة أو تغير فعلي.")
+    st.markdown("#### مركز التحليلات التفصيلية")
+    st.caption("استخدمي التبويبات التالية عند الحاجة للتدقيق. الصفحة الرئيسية تبقى مخصصة للقراءة التنفيذية لا للجداول الخام.")
 
-    c1, c2 = st.columns(2)
-    with c1:
-        _analysis_card("قائمة الدخل الرأسي", "متاح" if isinstance(vi, pd.DataFrame) and not vi.empty else "غير متاح", "يوضح أين يذهب كل 100 ريال من الإيراد", 'ok' if isinstance(vi, pd.DataFrame) and not vi.empty else 'warning')
-    with c2:
-        _analysis_card("المركز المالي الرأسي", "متاح" if isinstance(vb, pd.DataFrame) and not vb.empty else "غير متاح", "يوضح تركيب الأصول والالتزامات والتمويل", 'ok' if isinstance(vb, pd.DataFrame) and not vb.empty else 'warning')
-    c3, c4 = st.columns(2)
-    with c3:
-        _analysis_card("المقارنة الأفقية سنة بسنة", "متاحة" if comp.get('available') else "تحتاج سنة مقارنة", "تقارن ميزان المراجعة الحالي بالسابق", 'ok' if comp.get('available') else 'warning')
-    with c4:
-        _analysis_card("أكبر حركات الحسابات", "متاحة" if isinstance(hb, pd.DataFrame) and not hb.empty else "غير متاحة", "حركات داخل الفترة وليست بديلًا عن المقارنة", 'warning')
-
-    with st.expander("استعراض جدول قائمة الدخل الرأسي"):
+    detail_tabs = st.tabs(["قائمة الدخل الرأسي", "المركز المالي الرأسي", "المقارنة السنوية", "حركات الحسابات"])
+    with detail_tabs[0]:
         if isinstance(vi, pd.DataFrame) and not vi.empty:
+            st.markdown("##### قائمة الدخل الرأسي")
+            st.caption("يبين وزن كل بند من صافي الإيراد داخل نفس الفترة، لذلك لا يظهر سهم اتجاه إلا عند وجود فترة مقارنة.")
             _render_lux_table(vi, max_rows=20)
-            st.info("التحليل الرأسي يحول كل بند إلى نسبة من الإيراد. لا يظهر سهم ارتفاع/انخفاض لأنه يقرأ فترة واحدة فقط.")
         else:
             st.info("التحليل الرأسي لقائمة الدخل غير متاح قبل بناء قائمة دخل من الميزان أو ملفات التشغيل.")
 
-    with st.expander("استعراض جدول المركز المالي الرأسي"):
+    with detail_tabs[1]:
         if isinstance(vb, pd.DataFrame) and not vb.empty:
+            st.markdown("##### المركز المالي الرأسي")
+            st.caption("يبين وزن النقد، العملاء، المخزون، الالتزامات وحقوق الملكية داخل هيكل الأصول والتمويل.")
             _render_lux_table(vb, max_rows=20)
-            st.info("التحليل الرأسي للمركز المالي يوضح وزن النقد، المخزون، العملاء، والالتزامات داخل هيكل الأصول والتمويل.")
         else:
-            st.info("المركز المالي غير متاح.")
+            st.info("المركز المالي الرأسي غير متاح.")
 
-    with st.expander("استعراض جدول المقارنة الأفقية بين السنوات"):
+    with detail_tabs[2]:
         if comp.get('available') and isinstance(comp.get('income'), pd.DataFrame) and not comp.get('income').empty:
             _render_lux_table(comp.get('income'), max_rows=20, title="قائمة الدخل: مقارنة سنة بسنة")
             if isinstance(comp.get('balance'), pd.DataFrame) and not comp.get('balance').empty:
@@ -1176,9 +1199,9 @@ def render_vertical_horizontal_executive(full_model: dict):
         else:
             st.warning("لا توجد فترة مقارنة قابلة للقراءة. ارفعي ميزان مراجعة سنة سابقة أو ملف مبيعات/مصروفات شهري للمقارنة.")
 
-    with st.expander("استعراض أكبر حركات الحسابات داخل الفترة"):
+    with detail_tabs[3]:
         if isinstance(hb, pd.DataFrame) and not hb.empty:
-            st.caption("هذه حركات داخل الفترة وليست تحليلًا أفقيًا سنة بسنة. تُستخدم لتحديد الحسابات التي أثرت على الحركة خلال نفس الفترة.")
+            st.caption("هذه حركات داخل الفترة وليست تحليلًا أفقيًا سنة بسنة. تُستخدم لتحديد الحسابات الأكثر تأثيرًا داخل الفترة.")
             _render_lux_table(_add_trend_indicator(hb), max_rows=20)
         else:
             st.info("لا توجد حركات حسابات كافية للعرض.")
@@ -1706,11 +1729,11 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V13.6</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V13.7</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("## Wazen V13.6")
+    st.markdown("## Wazen V13.7")
     st.caption("Financial Health & Action Intelligence")
     if st.session_state.get("nav_page") not in PAGE_OPTIONS:
         st.session_state.nav_page = PAGE_OPTIONS[0]
@@ -1726,7 +1749,7 @@ with st.sidebar:
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
     st.checkbox("تفعيل صياغة AI للملخص التنفيذي إذا كان المفتاح متاحًا", key="ai_narrative_enabled", value=st.session_state.get("ai_narrative_enabled", False))
-    st.caption("V13.6: Decision Basis + Prior-Year Horizontal Analysis UX")
+    st.caption("V13.7: Hover Decision Basis + Executive Vertical/Horizontal UX")
 
 
 # -----------------------------------------------------------------------------

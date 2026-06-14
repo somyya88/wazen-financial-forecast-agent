@@ -768,6 +768,52 @@ def apply_theme():
     .v136-analysis-card.danger strong { color:#B42318; }
     .v136-analysis-card em { display:block; color:#475467; font-style:normal; line-height:1.7; font-size:13.5px; }
 
-    </style>
+    
+
+    /* V13.7 hover decision rationale and refined vertical/horizontal UX */
+    .v137-hover-card { overflow: visible !important; cursor: help; }
+    .v137-hover-hint {
+        position:absolute; top:12px; left:14px; z-index:3;
+        background:#F3F7FF; color:#17479E; border:1px solid #C8D8F5;
+        border-radius:999px; padding:5px 10px; font-size:12px; font-weight:900;
+    }
+    .v137-decision-tooltip {
+        opacity:0; visibility:hidden; pointer-events:none;
+        position:absolute; top:46px; left:14px; z-index:50;
+        width:min(450px, calc(100% - 28px));
+        background:#0B2E63; color:#FFFFFF; border:1px solid rgba(255,255,255,.18);
+        border-radius:18px; padding:14px 16px; box-shadow:0 24px 70px rgba(11,46,99,.28);
+        line-height:1.85; font-size:13.5px; transform:translateY(8px);
+        transition:all .18s ease;
+    }
+    .v137-hover-card:hover .v137-decision-tooltip { opacity:1; visibility:visible; transform:translateY(0); }
+    .v137-tooltip-title { font-weight:950; font-size:15px; margin-bottom:8px; color:#FFCF6A; }
+    .v137-decision-tooltip strong { color:#FFCF6A; }
+
+    .v137-structure-card, .v137-story-card {
+        background:linear-gradient(180deg,#FFFFFF 0%,#FBFCFF 100%);
+        border:1px solid #E3EAF6; border-radius:24px; padding:18px 18px;
+        box-shadow:0 18px 48px rgba(16,24,40,.055); min-height:178px; margin:10px 0 18px;
+        border-top:5px solid #17479E; direction:rtl;
+    }
+    .v137-structure-card.base { border-top-color:#17479E; background:linear-gradient(180deg,#FFFFFF,#F6F9FF); }
+    .v137-structure-card.ok, .v137-story-card.ok { border-top-color:#12B76A; }
+    .v137-structure-card.warning, .v137-story-card.warning { border-top-color:#FAA61A; }
+    .v137-structure-card.danger, .v137-story-card.danger { border-top-color:#D92D20; }
+    .v137-structure-top span, .v137-story-card span { display:block; color:#0B2E63; font-weight:950; font-size:17px; margin-bottom:9px; }
+    .v137-structure-top strong, .v137-story-card strong { display:block; color:#17479E; font-size:32px; font-weight:950; line-height:1.1; margin-bottom:8px; direction:ltr; text-align:left; }
+    .v137-structure-card.ok strong, .v137-story-card.ok strong { color:#067647; }
+    .v137-structure-card.warning strong, .v137-story-card.warning strong { color:#B54708; }
+    .v137-structure-card.danger strong, .v137-story-card.danger strong { color:#B42318; }
+    .v137-structure-card em, .v137-story-card em { display:block; color:#667085; font-style:normal; font-weight:800; font-size:13px; margin-bottom:8px; }
+    .v137-structure-card p { margin:0; color:#475467; line-height:1.75; font-size:13.5px; }
+    .v137-story-card { min-height:122px; }
+    .v137-story-card em { line-height:1.7; font-weight:700; }
+
+    @media(max-width: 1200px){
+        .v137-hover-hint { position:static; display:inline-block; margin-bottom:10px; }
+        .v137-decision-tooltip { left:10px; right:10px; width:auto; }
+    }
+</style>
     """
     st.markdown(css, unsafe_allow_html=True)
