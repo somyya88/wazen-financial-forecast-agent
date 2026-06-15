@@ -96,6 +96,8 @@ DEFAULTS = {
     "revenue_definition": REVENUE_DEFINITIONS[0],
     "ai_exec_diag_cache": {},
     "ai_exec_diag_signature": "",
+    "analysis_year": None,
+    "base_year": None,
 }
 for key, value in DEFAULTS.items():
     if key not in st.session_state:
@@ -1717,6 +1719,75 @@ def _pick_previous_record(records: list[dict], current: dict | None, role: str |
         return None
     return sorted(candidates, key=lambda r: (_record_year(r) or 0, float(r.get("confidence") or 0)), reverse=True)[0]
 
+
+def _records_by_year(records: list[dict], role: str | None = None, detected_type: str | None = None) -> dict[int, list[dict]]:
+    out: dict[int, list[dict]] = {}
+    for r in records or []:
+        if r.get("read_error"):
+            continue
+        if role and r.get("selected_role") != role:
+            continue
+        if detected_type and r.get("detected_type") != detected_type:
+            continue
+        y = _record_year(r)
+        if y:
+            out.setdefault(y, []).append(r)
+    return out
+
+
+def _pick_record_by_year(records: list[dict], year: int | None, role: str | None = None, detected_type: str | None = None) -> dict | None:
+    if not year:
+        return None
+    candidates = []
+    for r in records or []:
+        if r.get("read_error"):
+            continue
+        if role and r.get("selected_role") != role:
+            continue
+        if detected_type and r.get("detected_type") != detected_type:
+            continue
+        if _record_year(r) == year:
+            candidates.append(r)
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda r: (float(r.get("confidence") or 0), str(r.get("file_name") or "")), reverse=True)[0]
+
+
+def _available_years(records: list[dict], role: str | None = None, detected_type: str | None = None) -> list[int]:
+    return sorted(_records_by_year(records, role=role, detected_type=detected_type).keys(), reverse=True)
+
+
+def render_year_control(readable_files: list[dict]):
+    """Let the user explicitly choose the analyzed year and base year for comparison."""
+    tb_years = _available_years(readable_files, role="validation_source", detected_type="trial_balance")
+    revenue_years = _available_years(readable_files, role="official_revenue_source")
+    years = sorted(set(tb_years + revenue_years), reverse=True)
+    if len(years) < 2:
+        if years:
+            st.session_state.analysis_year = st.session_state.analysis_year or years[0]
+        return
+
+    st.markdown("### فترة المقارنة")
+    st.caption("اختاري السنة التي تريدين تحليلها، ثم سنة الأساس التي ستظهر كمقارنة. عند رفع 3 أو 4 سنوات لا يعتمد النظام على التخمين.")
+    default_current = st.session_state.get("analysis_year") if st.session_state.get("analysis_year") in years else years[0]
+    base_options = [y for y in years if y != default_current]
+    default_base = st.session_state.get("base_year") if st.session_state.get("base_year") in base_options else (base_options[0] if base_options else None)
+    c1, c2 = st.columns(2)
+    with c1:
+        current = st.selectbox("السنة محل التحليل", years, index=years.index(default_current), key="analysis_year_select")
+    base_options = [y for y in years if y != current]
+    with c2:
+        if base_options:
+            base_idx = base_options.index(default_base) if default_base in base_options else 0
+            base = st.selectbox("سنة الأساس للمقارنة", base_options, index=base_idx, key="base_year_select")
+        else:
+            base = None
+            st.info("لا توجد سنة أساس مختلفة متاحة للمقارنة.")
+    st.session_state.analysis_year = current
+    st.session_state.base_year = base
+    if base:
+        st.markdown(f'<div class="v141-year-chip">سيتم تحليل <strong>{current}</strong> ومقارنتها بسنة الأساس <strong>{base}</strong>.</div>', unsafe_allow_html=True)
+
 def build_models_from_session(revenue_definition: str | None = None):
     """Build all financial models from the currently selected files.
     Used by the upload page and by the readiness page after adding files directly.
@@ -1724,14 +1795,16 @@ def build_models_from_session(revenue_definition: str | None = None):
     revenue_definition = revenue_definition or st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0])
     readable_files = [r for r in st.session_state.files if not r.get("read_error")]
 
-    # File-aware selection: when current and prior-year files are uploaded, the active model uses
-    # the latest year/period. Prior-year files are kept for comparison, not used as the current period.
-    tb_record = _pick_latest_record(readable_files, role="validation_source", detected_type="trial_balance")
-    revenue_record = _pick_latest_record(readable_files, role="official_revenue_source")
-    expense_record = _pick_latest_record(readable_files, role="official_expense_source")
+    # File-aware selection: when multiple years are uploaded, use explicit user-selected current/base years when available.
+    selected_current_year = st.session_state.get("analysis_year")
+    selected_base_year = st.session_state.get("base_year")
 
-    previous_tb_record = _pick_previous_record(readable_files, tb_record, role="validation_source", detected_type="trial_balance")
-    previous_revenue_record = _pick_previous_record(readable_files, revenue_record, role="official_revenue_source")
+    tb_record = _pick_record_by_year(readable_files, selected_current_year, role="validation_source", detected_type="trial_balance") or _pick_latest_record(readable_files, role="validation_source", detected_type="trial_balance")
+    revenue_record = _pick_record_by_year(readable_files, selected_current_year, role="official_revenue_source") or _pick_latest_record(readable_files, role="official_revenue_source")
+    expense_record = _pick_record_by_year(readable_files, selected_current_year, role="official_expense_source") or _pick_latest_record(readable_files, role="official_expense_source")
+
+    previous_tb_record = _pick_record_by_year(readable_files, selected_base_year, role="validation_source", detected_type="trial_balance") or _pick_previous_record(readable_files, tb_record, role="validation_source", detected_type="trial_balance")
+    previous_revenue_record = _pick_record_by_year(readable_files, selected_base_year, role="official_revenue_source") or _pick_previous_record(readable_files, revenue_record, role="official_revenue_source")
 
     revenue_model = build_revenue_model(revenue_record, revenue_definition) if revenue_record else None
 
@@ -1798,6 +1871,8 @@ def build_models_from_session(revenue_definition: str | None = None):
         "tb_model": tb_model,
         "previous_tb_model": previous_tb_model,
         "previous_revenue_model": previous_revenue_model,
+        "analysis_year": current_year,
+        "base_year": previous_year,
         "active_files": {
             "trial_balance": tb_record.get("file_name") if tb_record else None,
             "revenue": revenue_record.get("file_name") if revenue_record else None,
@@ -1848,11 +1923,11 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V14.0</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V14.1</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("## Wazen V14.0")
+    st.markdown("## Wazen V14.1")
     st.caption("Financial Health & Action Intelligence")
     if st.session_state.get("nav_page") not in PAGE_OPTIONS:
         st.session_state.nav_page = PAGE_OPTIONS[0]
@@ -1868,7 +1943,7 @@ with st.sidebar:
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
     st.checkbox("تفعيل صياغة AI للملخص التنفيذي إذا كان المفتاح متاحًا", key="ai_narrative_enabled", value=st.session_state.get("ai_narrative_enabled", False))
-    st.caption("V14.0: AI Executive Diagnosis Engine")
+    st.caption("V14.1: Executive UX + Comparative Year Control")
 
 
 # -----------------------------------------------------------------------------
@@ -1978,9 +2053,10 @@ elif page == "2. رفع الملفات والمطابقة":
 
         st.markdown("### فترة التحليل وتصنيف المصاريف")
         readable_files = [r for r in st.session_state.files if not r.get("read_error")]
-        revenue_preview_record = _pick_latest_record(readable_files, role="official_revenue_source")
-        expense_preview_record = _pick_latest_record(readable_files, role="official_expense_source")
-        tb_preview_record = _pick_latest_record(readable_files, role="validation_source", detected_type="trial_balance")
+        render_year_control(readable_files)
+        revenue_preview_record = _pick_record_by_year(readable_files, st.session_state.get("analysis_year"), role="official_revenue_source") or _pick_latest_record(readable_files, role="official_revenue_source")
+        expense_preview_record = _pick_record_by_year(readable_files, st.session_state.get("analysis_year"), role="official_expense_source") or _pick_latest_record(readable_files, role="official_expense_source")
+        tb_preview_record = _pick_record_by_year(readable_files, st.session_state.get("analysis_year"), role="validation_source", detected_type="trial_balance") or _pick_latest_record(readable_files, role="validation_source", detected_type="trial_balance")
 
         revenue_definition = st.selectbox("تعريف الإيراد", REVENUE_DEFINITIONS, index=REVENUE_DEFINITIONS.index(st.session_state.get("revenue_definition", REVENUE_DEFINITIONS[0])) if st.session_state.get("revenue_definition") in REVENUE_DEFINITIONS else 0)
         st.session_state.revenue_definition = revenue_definition
@@ -2055,30 +2131,58 @@ elif page == "2. رفع الملفات والمطابقة":
 # Readiness
 # -----------------------------------------------------------------------------
 elif page == "3. جاهزية التحليل":
-    section_header("3. قابلية التحليل من البيانات الحالية")
-    render_hero("ما الذي يمكن استخراجه الآن؟", "هذه الصفحة تترجم الملفات المرفوعة إلى نطاق تحليل واضح: ماذا نستطيع تشخيصه بثقة، وما الذي يحتاج ملفًا إضافيًا قبل الاعتماد على التوقعات.")
-    st.caption("سياق النشاط تم تثبيته في صفحة إعداد النشاط، ولن نكرر خريطة القطاع هنا إلا عند تعديل الإعدادات.")
-
+    section_header("3. قابلية التحليل")
     profile = build_readiness_profile(st.session_state.files, refresh_business_profile(), st.session_state.models)
-    main_col, side_col = st.columns([2.7, 1])
-    with main_col:
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            kpi_card("درجة قابلية التحليل", f"{profile['score']}%", profile["label"])
-        with c2:
-            kpi_card("ثقة قراءة الملفات", f"{profile['avg_confidence']*100:.0f}%", "مدى وضوح بنية الملفات")
-        with c3:
-            branch_note = "يمكن تحليله" if profile.get("branch_signal",{}).get("has_branch_signal") else "غير متوفر"
-            kpi_card("تحليل الفروع", branch_note, "حسب الأعمدة أو نصوص الملفات")
+    active_files = (st.session_state.models or {}).get("active_files", {}) if st.session_state.models else {}
 
-        st.markdown(f"""
-        <div class="wazen-action-box">
-            <h3>{profile['label']}</h3>
-            <p>{profile['status']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    with side_col:
-        render_suggested_file_column(profile)
+    st.markdown("""
+    <div class="v141-readiness-hero">
+      <div>
+        <span>نطاق التحليل الحالي</span>
+        <h2>ماذا يمكن الاعتماد عليه الآن؟</h2>
+        <p>هذه الصفحة تلخص مصادر النموذج ودقة القراءة دون تحويل الملفات الناقصة إلى مساحة عمل طويلة.</p>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        kpi_card("قابلية التحليل", f"{profile['score']}%", profile["label"])
+    with c2:
+        kpi_card("ثقة قراءة الملفات", f"{profile['avg_confidence']*100:.0f}%", "وضوح بنية الملفات")
+    with c3:
+        years_txt = "—"
+        if st.session_state.get("analysis_year"):
+            years_txt = str(st.session_state.get("analysis_year"))
+            if st.session_state.get("base_year"):
+                years_txt += f" / أساس {st.session_state.get('base_year')}"
+        kpi_card("فترة المقارنة", years_txt, "السنة الحالية وسنة الأساس")
+
+    status_html = f"""
+    <div class="v141-readiness-scope">
+      <h3>{_html_escape(profile['label'])}</h3>
+      <p>{_html_escape(profile['status'])}</p>
+    </div>
+    """
+    st.markdown(status_html, unsafe_allow_html=True)
+
+    labels = {
+        "trial_balance": "ميزان المراجعة الحالي",
+        "previous_trial_balance": "سنة الأساس للمقارنة",
+        "revenue": "إيرادات تفصيلية",
+        "expense": "مصروفات تفصيلية",
+        "previous_revenue": "إيرادات سنة أساس",
+    }
+    source_cards = []
+    for key, label in labels.items():
+        source_cards.append({"label": label, "file": active_files.get(key)})
+    card_parts = []
+    for c in source_cards:
+        tone = "ok" if c.get("file") else "missing"
+        status = "متوفر" if c.get("file") else "غير مرفوع"
+        note = c.get("file") or "ليس شرطاً لإيقاف التحليل، لكنه يرفع الدقة عند توفره."
+        card_parts.append(f'<div class="v141-source-card {tone}"><span>{_html_escape(c["label"])}</span><strong>{_html_escape(status)}</strong><p>{_html_escape(note)}</p></div>')
+    st.markdown(f'<div class="v141-source-grid">{"".join(card_parts)}</div>', unsafe_allow_html=True)
 
     if st.session_state.get("pending_rebuild"):
         min_status = minimum_model_status(st.session_state.files)
@@ -2090,39 +2194,18 @@ elif page == "3. جاهزية التحليل":
             st.success("تم تحديث النموذج بالملفات الجديدة.")
             st.rerun()
 
-    st.markdown("### نطاق التحليل المتاح")
-    checks_df = profile["checks"].copy()
-    if not checks_df.empty:
-        checks_df["الحالة"] = checks_df["الحالة"].replace({"متوفر": "✅ متوفر", "غير متوفر": "⚠️ غير متوفر"})
-    st.dataframe(checks_df, use_container_width=True, hide_index=True)
+    recs = build_missing_data_recommendations(profile)
+    if isinstance(recs, pd.DataFrame) and not recs.empty:
+        with st.expander("مصادر اختيارية ترفع دقة القراءة"):
+            st.caption("تُضاف من صفحة رفع الملفات والمطابقة؛ لا تحتاج مساحة رفع منفصلة هنا.")
+            compact = recs.head(5).rename(columns={"المطلوب بلغة بسيطة": "المصدر المقترح", "القيمة المضافة": "الأثر"})
+            _render_lux_table(compact, max_rows=5)
 
-    st.markdown("### مصادر النموذج المعتمدة")
-    active_files = (st.session_state.models or {}).get("active_files", {}) if st.session_state.models else {}
-    if active_files:
-        rows = []
-        labels = {
-            "trial_balance": "ميزان المراجعة الحالي",
-            "previous_trial_balance": "ميزان المراجعة المقارن",
-            "revenue": "مصدر الإيرادات التفصيلي",
-            "expense": "مصدر المصاريف التفصيلي",
-            "previous_revenue": "إيرادات فترة مقارنة",
-        }
-        for k, v in active_files.items():
-            if v:
-                rows.append({"الدور في النموذج": labels.get(k, k), "الملف المعتمد": v})
-        if rows:
-            _render_lux_table(pd.DataFrame(rows), max_rows=8)
-        else:
-            st.info("تمت قراءة ملفات، لكن لم يتم اعتماد مصدر نموذج بعد. ابني النموذج من صفحة رفع الملفات.")
-    else:
-        st.info("لم يتم بناء النموذج بعد. تفاصيل أدوار الملفات تبقى في صفحة الرفع والمطابقة فقط.")
-
-    st.markdown("### بيانات إضافية ترفع موثوقية القرار")
-    st.caption("هذه ليست متطلبات تشغيل؛ هي ملفات تزيد دقة القرار عندما تكون متاحة.")
-
-    if profile.get("branch_signal", {}).get("files"):
-        st.markdown("### ملفات يظهر فيها أثر للفروع")
-        st.write("، ".join(profile["branch_signal"]["files"]))
+    with st.expander("تفاصيل نطاق التحليل"):
+        checks_df = profile["checks"].copy()
+        if not checks_df.empty:
+            checks_df["الحالة"] = checks_df["الحالة"].replace({"متوفر": "✅ متوفر", "غير متوفر": "⚠️ غير متوفر"})
+        _render_lux_table(checks_df, max_rows=20)
 
 
 # -----------------------------------------------------------------------------
@@ -2191,16 +2274,17 @@ elif page == "4. التشخيص التنفيذي":
         leakage = rq.get("leakage_ratio") if isinstance(rq, dict) else None
 
         st.markdown("### ملخص تنفيذي رقمي")
+        st.caption("الترتيب يعكس انتقال الإيراد من المبيعات إلى الربح النهائي، وليس مجرد عرض أرقام منفصلة.")
         cols = st.columns(4)
-        with cols[0]: kpi_card("إجمالي الإيراد", _fmt_money(revenue), "من القوائم المقروءة")
-        with cols[1]: kpi_card("مجمل الربح", _fmt_money(gross_profit), f"هامش {_fmt_pct(_ratio_of(gross_profit, revenue))}")
-        with cols[2]: kpi_card("تكلفة الإيراد", _fmt_money(cogs), f"{_fmt_pct(_ratio_of(cogs, revenue))} من الإيراد")
-        with cols[3]: kpi_card("صافي النتيجة", _fmt_money(net_profit), f"هامش {_fmt_pct(_ratio_of(net_profit, revenue))}")
+        with cols[0]: kpi_card("إجمالي الإيراد", _fmt_money(revenue), "أساس قراءة النشاط")
+        with cols[1]: kpi_card("تكلفة الإيراد", _fmt_money(cogs), f"{_fmt_pct(_ratio_of(cogs, revenue))} من الإيراد")
+        with cols[2]: kpi_card("مجمل الربح", _fmt_money(gross_profit), f"هامش {_fmt_pct(_ratio_of(gross_profit, revenue))}")
+        with cols[3]: kpi_card("المصاريف التشغيلية", _fmt_money(opex), f"{_fmt_pct(_ratio_of(opex, revenue))} من الإيراد")
 
         cols2 = st.columns(4)
-        with cols2[0]: kpi_card("المصاريف التشغيلية", _fmt_money(opex), f"{_fmt_pct(_ratio_of(opex, revenue))} من الإيراد")
-        with cols2[1]: kpi_card("المصاريف الإدارية", _fmt_money(admin), f"{_fmt_pct(_ratio_of(admin, revenue))} من الإيراد")
-        with cols2[2]: kpi_card("البيع والتسويق", _fmt_money(selling), f"{_fmt_pct(_ratio_of(selling, revenue))} من الإيراد")
+        with cols2[0]: kpi_card("المصاريف الإدارية", _fmt_money(admin), f"{_fmt_pct(_ratio_of(admin, revenue))} من الإيراد")
+        with cols2[1]: kpi_card("البيع والتسويق", _fmt_money(selling), f"{_fmt_pct(_ratio_of(selling, revenue))} من الإيراد")
+        with cols2[2]: kpi_card("صافي النتيجة", _fmt_money(net_profit), f"هامش {_fmt_pct(_ratio_of(net_profit, revenue))}")
         with cols2[3]: kpi_card("نقاء الإيراد", "—" if leakage is None else f"{(1-leakage)*100:.1f}%", "بعد الخصومات والمردودات")
 
         headline = exec_diag.get("headline") or "تشخيص مالي غير مكتمل"
@@ -2220,12 +2304,12 @@ elif page == "4. التشخيص التنفيذي":
             <h3>{_html_escape(headline)}</h3>
             <p class="ai-cfo-main {tone_class}">{_html_escape(exec_diag.get('executive_message',''))}</p>
             <div class="ai-cfo-grid">
-                <div class="ai-cfo-box"><h4>ما الذي تثبته الأرقام؟</h4><ul>{_ul(exec_diag.get('evidence', []))}</ul></div>
-                <div class="ai-cfo-box"><h4>أين الخطر؟</h4><ul>{_ul(exec_diag.get('risks', []))}</ul></div>
+                <div class="ai-cfo-box"><h4>قراءة نموذج العمل</h4><ul>{_ul(exec_diag.get('business_model_reading', exec_diag.get('evidence', [])))}</ul></div>
+                <div class="ai-cfo-box"><h4>مصادر الضغط</h4><ul>{_ul(exec_diag.get('risks', []))}</ul></div>
                 <div class="ai-cfo-box"><h4>السيولة ورأس المال العامل</h4><p>{_html_escape(exec_diag.get('cash_and_working_capital',''))}</p></div>
-                <div class="ai-cfo-box"><h4>ما الذي لا يجب الجزم به؟</h4><ul>{_ul(exec_diag.get('data_limits', []))}</ul></div>
+                <div class="ai-cfo-box"><h4>حدود القراءة الحالية</h4><ul>{_ul(exec_diag.get('data_limits', []))}</ul></div>
             </div>
-            <div class="ai-cfo-actions"><h4>توصيات تنفيذية حسب طبيعة النشاط</h4><ul>{_ul(exec_diag.get('next_actions', []))}</ul></div>
+            <div class="ai-cfo-actions"><h4>إجراءات تنفيذية مقترحة</h4><ul>{_ul(exec_diag.get('next_actions', []))}</ul></div>
             <div class="ai-cfo-note">{_html_escape(exec_diag.get('confidence_note',''))}</div>
         </div>
         """, unsafe_allow_html=True)
@@ -2236,9 +2320,9 @@ elif page == "4. التشخيص التنفيذي":
         warnings += ((full_model.get("segment_analysis", {}) or {}).get("warnings", []) if full_model else [])
         warnings += ((full_model.get("balance_quality_flags", {}) or {}).get("flags", []) if full_model else [])
         if warnings:
-            with st.expander("تنبيهات تؤثر على موثوقية التشخيص"):
+            with st.expander("ملاحظات لتحسين دقة القراءة"):
                 for w in warnings:
-                    st.warning(w)
+                    st.markdown(f'<div class="v141-professional-note">{_html_escape(w)}</div>', unsafe_allow_html=True)
 
 
 # -----------------------------------------------------------------------------

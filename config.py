@@ -1,11 +1,10 @@
 """Global configuration for Wazen CFO Intelligence Agent.
 
-V13.9 adds a dedicated AI executive diagnosis layer and hardens the app so UI constants live in one place instead of being
-implicitly expected by app.py. Keep this file small and deterministic.
+V14.1 adds explicit current/base year selection, compact readiness UX, and a cleaner executive diagnosis flow.
 """
 
-APP_NAME = "Wazen CFO Intelligence Agent V14.0.1"
-APP_VERSION = "13.9"
+APP_NAME = "Wazen CFO Intelligence Agent V14.1"
+APP_VERSION = "14.1"
 DEFAULT_CURRENCY = "SAR"
 
 # Wazen brand/theme constants used by theme.py and UI components.

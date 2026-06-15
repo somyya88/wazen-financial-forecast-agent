@@ -114,8 +114,9 @@ def build_ai_diagnosis_payload(
         })
 
     data_gaps = []
+    # Trial Balance can support accounting liquidity ratios; bank/cashflow reports only add cash movement and runway.
     if not (liquidity_model or {}).get("cash", {}).get("available"):
-        data_gaps.append("لا يوجد تقرير سيولة/كشف بنك مستقل؛ السيولة من الميزان فقط أو غير مكتملة.")
+        data_gaps.append("لا يوجد كشف بنك أو تقرير سيولة مستقل؛ يمكن قراءة السيولة المحاسبية من الميزان، لكن حركة النقد والـRunway تحتاج ملفاً داعماً.")
     if not (liquidity_model or {}).get("ar", {}).get("available"):
         data_gaps.append("لا توجد أعمار عملاء؛ التحصيل وDSO لا يثبتان من الميزان وحده.")
     if not (liquidity_model or {}).get("ap", {}).get("available"):
@@ -289,16 +290,36 @@ def fallback_executive_diagnosis(payload: dict) -> dict:
     if leakage is not None:
         evidence.append(f"تآكل الإيراد من الخصومات والمردودات {pct(leakage)}.")
 
-    if current_ratio is None:
-        cash = "لا توجد قراءة سيولة مكتملة من المصادر الحالية؛ لا يصح تحويل غياب المؤشر إلى صفر. يلزم تصنيف النقد والالتزامات المتداولة أو ربط كشف البنك وتقرير السيولة."
+    # Value-added reading: do not repeat KPI cards; explain what the profit chain says about the business model.
+    business_model_reading = []
+    if gm is not None and gm > 0 and om is not None and om < 0:
+        business_model_reading.append("النشاط يملك هامشاً أولياً، لكن هذا الهامش لا يكفي لتغطية البنية التشغيلية بعد تكلفة الإيراد.")
+        business_model_reading.append("المشكلة الأقرب ليست في وجود المبيعات فقط، بل في تحويل مجمل الربح إلى ربح تشغيلي مستقر.")
+    elif gm is not None and gm <= 0:
+        business_model_reading.append("تكلفة الإيراد تلتهم المبيعات قبل الوصول إلى مجمل ربح، ما يعني أن التسعير أو تكلفة التنفيذ يحتاجان مراجعة مباشرة.")
+    elif nm is not None and nm > 0:
+        business_model_reading.append("نموذج الربح يحتفظ بجزء من الإيراد بعد التكلفة والمصاريف، لكن جودة الحكم تعتمد على التحصيل والسيولة.")
     else:
-        cash = f"نسبة التداول {current_ratio:.2f}x من الميزان؛ هذه قراءة محاسبية للسيولة وليست إثباتاً لتوقيت النقد اليومي أو قدرة التحصيل."
+        business_model_reading.append("قراءة نموذج العمل تحتاج ربط الهامش بالتكلفة والمصاريف والتحصيل قبل إصدار حكم نهائي.")
+    if opex_ratio is not None and opex_ratio > 35:
+        business_model_reading.append("نسبة المصاريف التشغيلية مرتفعة بما يكفي لتكون محور مراجعة إداري، خصوصاً إذا لم تكن مرتبطة مباشرة بزيادة الإيراد.")
+    if leakage is not None:
+        if leakage <= 2:
+            business_model_reading.append("نقاء الإيراد من الخصومات والمردودات لا يظهر كمصدر ضغط رئيسي من الميزان الحالي.")
+        else:
+            business_model_reading.append("الخصومات والمردودات تظهر كمصدر تآكل يحتاج فصلاً حسب العميل أو المنتج أو الفرع.")
+
+    if current_ratio is None:
+        cash = "لم تُقرأ نسب السيولة من الميزان بشكل كافٍ. عند وجود النقد، العملاء، المخزون، والالتزامات المتداولة داخل ميزان المراجعة يجب أن تُحسب السيولة المحاسبية منه؛ أما حركة النقد والـRunway فتحتاج كشف بنك أو تقرير سيولة."
+    else:
+        wc = _num(lq.get("working_capital"), None)
+        cash = f"السيولة المحاسبية مقروءة من ميزان المراجعة: نسبة التداول {current_ratio:.2f}x" + (f" ورأس المال العامل {money(wc)}." if wc is not None else ".") + " هذه القراءة تقيس القدرة المحاسبية قصيرة الأجل، بينما توقيت النقد والتحصيل يحتاج كشف بنك أو أعمار عملاء."
 
     sector_actions = [
-        "افصل تكلفة الإيراد عن المصاريف الإدارية والبيعية، ثم اربط التكلفة بالمشروع أو الخدمة أو العميل حسب طبيعة النشاط.",
+        "ثبّت تصنيف تكلفة الإيراد مقابل المصاريف الإدارية والبيعية حتى لا تختلط تكلفة تقديم الخدمة مع مصاريف الإدارة العامة.",
         "استخرج أكبر 10 بنود تكلفة ومصاريف وقيّم هل هي منتجة للإيراد أم عبء ثابت على الهامش.",
         "راجع سياسة التسعير والخصومات والمردودات إذا كان تآكل الإيراد مؤثراً أو إذا كان مجمل الربح لا يغطي المصاريف.",
-        "اربط السيولة بكشف البنك وأعمار العملاء قبل أي قرار يتعلق بالسداد أو الالتزامات قصيرة الأجل.",
+        "اربط السيولة المحاسبية من الميزان بحركة البنك وأعمار العملاء عند تقييم قدرة السداد والتحصيل.",
     ]
     if "مقاول" in str(sector) or "مشاريع" in str(sector):
         sector_actions.insert(0, "في نشاط المقاولات والمشاريع، لا يكفي هامش الشركة الإجمالي؛ يجب تحليل هامش كل مشروع مع المستخلصات والاحتجازات وتكلفة التنفيذ.")
@@ -308,6 +329,7 @@ def fallback_executive_diagnosis(payload: dict) -> dict:
         "headline": headline,
         "executive_message": msg,
         "evidence": evidence[:8],
+        "business_model_reading": business_model_reading[:5],
         "risks": risks,
         "cash_and_working_capital": cash,
         "data_limits": gaps[:4] or ["القراءة مبنية على مصادر النموذج الحالية فقط."],
@@ -336,13 +358,15 @@ def generate_ai_executive_diagnosis(payload: dict, model: str = "gpt-4o-mini") -
 - اكتب بالعربية الفصحى المهنية فقط، بأسلوب CFO مباشر، دون عبارات تسويقية أو حشو.
 - لا تذكر الالتزام المالي الجديد كإجراء أو تحذير افتراضي؛ ركز على الربحية، السيولة، المصاريف، الالتزامات، والتحصيل.
 - يجب أن يتضمن التشخيص صراحة: إجمالي الإيراد، مجمل الربح، هامش مجمل الربح، تكلفة الإيراد ونسبتها، المصاريف التشغيلية ونسبتها، والمصاريف الإدارية/البيع والتسويق إذا كانت متاحة.
+- لا تجعل قسم قراءة نموذج العمل تكراراً للبطاقات الرقمية؛ اشرح ماذا تعني سلسلة الإيراد ← تكلفة الإيراد ← مجمل الربح ← المصاريف ← صافي النتيجة عن جودة نموذج العمل.
+- السيولة ورأس المال العامل تُقرأ محاسبياً من ميزان المراجعة عند توفر النقد والذمم والمخزون والالتزامات المتداولة؛ كشف البنك يضيف حركة النقد والـRunway وليس شرطاً لقراءة السيولة المحاسبية.
 - التوصيات يجب أن تكون تنفيذية حسب القطاع، وليست عامة.
 أعد الرد JSON صالح فقط بالمفاتيح التالية:
-headline, executive_message, evidence, risks, cash_and_working_capital, data_limits, next_actions, confidence_note, decision_label
-حيث evidence وrisks وdata_limits وnext_actions قوائم قصيرة من 2 إلى 5 عناصر.
+headline, executive_message, evidence, business_model_reading, risks, cash_and_working_capital, data_limits, next_actions, confidence_note, decision_label
+حيث evidence وbusiness_model_reading وrisks وdata_limits وnext_actions قوائم قصيرة من 2 إلى 5 عناصر.
 """
     user = {
-        "task": "اكتب تشخيصًا تنفيذيًا ماليًا مخصصًا للشركة الحالية. لا تستخدم قالبًا ثابتًا. اربط الأرقام ببعضها: الإيراد، مجمل الربح، تكلفة الإيراد، المصاريف، صافي النتيجة، السيولة، جودة الإيراد، وفجوات البيانات. لا تذكر الالتزام المالي الجديد كتحذير افتراضي.",
+        "task": "اكتب تشخيصًا تنفيذيًا ماليًا مخصصًا للشركة الحالية. لا تستخدم قالبًا ثابتًا. اربط الأرقام ببعضها: الإيراد، مجمل الربح، تكلفة الإيراد، المصاريف، صافي النتيجة، السيولة، جودة الإيراد، وفجوات البيانات. اجعل business_model_reading قيمة مضافة لا تكراراً للبطاقات الرقمية. لا تذكر الالتزام المالي الجديد أو التوسع كتحذير افتراضي.",
         "payload": payload,
     }
     try:

@@ -975,6 +975,48 @@ def apply_theme():
     .v140-exec-diagnosis .ai-cfo-actions { background:#FFF9EC; }
     @media(max-width: 900px){ .v140-decision-line, .v140-decision-action{ grid-template-columns:1fr; } }
 
+
+
+    /* V14.1 compact readiness and executive UX */
+    .v141-year-chip {
+        background:#F3F7FF; color:#0B2E63; border:1px solid #C8D8F5;
+        border-radius:16px; padding:10px 14px; margin:10px 0 16px;
+        font-weight:850; line-height:1.8;
+    }
+    .v141-readiness-hero {
+        background:linear-gradient(135deg,#FFFFFF 0%,#F8FBFF 60%,#EEF6FF 100%);
+        border:1px solid #D9E6F8; border-radius:26px; padding:22px 26px;
+        margin:6px 0 18px; box-shadow:0 20px 55px rgba(23,71,158,.09);
+        border-right:7px solid #17479E;
+    }
+    .v141-readiness-hero span { display:inline-block; color:#17479E; background:#EFF6FF; border:1px solid #C8D8F5; border-radius:999px; padding:4px 12px; font-weight:900; font-size:12px; margin-bottom:8px; }
+    .v141-readiness-hero h2 { color:#0B2E63 !important; font-weight:950; margin:0 0 6px; font-size:26px; }
+    .v141-readiness-hero p { color:#475467; line-height:1.9; margin:0; }
+    .v141-readiness-scope {
+        background:#0B2E63; color:#fff; border-radius:22px; padding:18px 22px;
+        margin:12px 0 16px; box-shadow:0 20px 50px rgba(23,71,158,.18);
+    }
+    .v141-readiness-scope h3 { color:#fff !important; font-size:21px; font-weight:950; margin:0 0 6px; }
+    .v141-readiness-scope p { color:#EAF2FF; margin:0; line-height:1.9; }
+    .v141-source-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin:12px 0 18px; }
+    .v141-source-card {
+        background:#fff; border:1px solid #E3EAF6; border-radius:18px; padding:14px 15px;
+        min-height:112px; box-shadow:0 12px 30px rgba(16,24,40,.045); border-top:5px solid #CBD5E1;
+    }
+    .v141-source-card.ok { border-top-color:#12B76A; }
+    .v141-source-card.missing { border-top-color:#FAA61A; }
+    .v141-source-card span { display:block; color:#667085; font-size:12.5px; font-weight:900; margin-bottom:6px; }
+    .v141-source-card strong { display:block; color:#0B2E63; font-size:17px; font-weight:950; margin-bottom:6px; }
+    .v141-source-card.ok strong { color:#067647; }
+    .v141-source-card p { color:#475467; font-size:12.5px; line-height:1.65; margin:0; word-break:break-word; }
+    .v141-professional-note {
+        background:#F8FBFF; border:1px solid #DCE8F7; border-right:5px solid #17479E;
+        color:#1F2937; border-radius:14px; padding:12px 14px; margin:10px 0; line-height:1.85;
+    }
+    .v141-exec-subtle { color:#667085; font-size:13px; line-height:1.8; }
+    @media(max-width: 1150px){ .v141-source-grid{ grid-template-columns:1fr 1fr; } }
+    @media(max-width: 720px){ .v141-source-grid{ grid-template-columns:1fr; } }
+
 </style>
     """
     st.markdown(css, unsafe_allow_html=True)
