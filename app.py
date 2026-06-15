@@ -455,17 +455,20 @@ def _enrich_ratios_with_benchmarks(df: pd.DataFrame, full_model: dict | None = N
 
 
 def _trend_badge_from_value(value) -> str:
+    """Plain trend marker safe for KPI cards and dataframes.
+    Previous versions returned HTML spans, which Streamlit escaped inside cards/tables.
+    """
     txt = str(value or '').strip()
     if txt in ['', '—', '-', 'nan', 'None']:
-        return '<span class="v138-trend neutral">▬ —</span>'
+        return '▬ —'
     n = _as_number(txt, None)
     if n is None:
-        return _html_escape(txt)
+        return txt
     if abs(n) < 1e-9:
-        return f'<span class="v138-trend neutral">▬ {txt}</span>'
+        return f'▬ {txt}'
     if n > 0:
-        return f'<span class="v138-trend ok">▲ {txt}</span>'
-    return f'<span class="v138-trend danger">▼ {txt}</span>'
+        return f'▲ {txt}'
+    return f'▼ {txt}'
 
 
 def _add_trend_indicator(df: pd.DataFrame) -> pd.DataFrame:
@@ -801,16 +804,16 @@ def _trend_from_numbers(current, previous, inverse: bool = False) -> str:
 
 
 def _change_badge(pct, current=None, previous=None, inverse: bool = False):
+    """Return a plain inline change label.
+    It intentionally avoids HTML so it renders correctly inside story cards and tables.
+    """
     n = _as_number(pct, None)
     if n is None:
-        return '<span class="v138-trend neutral">▬ —</span>'
+        return '▬ —'
     if abs(n) < 0.0005:
-        return '<span class="v138-trend neutral">▬ ثابت</span>'
-    up = n > 0
-    good = (not inverse and up) or (inverse and not up)
-    tone = 'ok' if good else 'danger'
-    arrow = '▲' if up else '▼'
-    return f'<span class="v138-trend {tone}">{arrow} {n*100:.1f}%</span>'
+        return '▬ ثابت'
+    arrow = '▲' if n > 0 else '▼'
+    return f'{arrow} {n*100:.1f}%'
 
 
 def _build_prior_tb_comparison(current_tb_model: dict | None, previous_tb_model: dict | None, current_label: str = 'الفترة الحالية', previous_label: str = 'الفترة السابقة') -> dict:
@@ -1270,11 +1273,6 @@ def render_vertical_horizontal_executive(full_model: dict):
         _structure_card("مصاريف التشغيل", _pct_label(opex), "إدارة وبيع وتشغيل", "توضح العبء التشغيلي المطلوب لإدارة النشاط وتحويل الإيراد إلى ربح.", "warning" if opex is None or opex > 0.25 else "ok")
     with cols[4]:
         _structure_card("صافي النتيجة", _pct_label(nm), "بعد كل البنود", "يبين ما تبقى من الإيراد بعد التكلفة والمصاريف والتمويل والضرائب.", "ok" if nm is not None and nm > 0 else "danger")
-
-    expense_mix = _expense_ratio_from_model(full_model)
-    if isinstance(expense_mix, pd.DataFrame) and not expense_mix.empty:
-        with st.expander("تحليل مصاريف التشغيل والتكلفة كنسبة من الإيراد"):
-            _render_lux_table(expense_mix, max_rows=12)
 
     st.markdown("#### المقارنة الأفقية")
     if comp.get('available'):
@@ -1923,11 +1921,11 @@ def go_to(page_name: str):
 # -----------------------------------------------------------------------------
 # Sidebar navigation
 # -----------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V14.1</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Wazen CFO Intelligence Agent V14.2</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">من بيانات محاسبية خام إلى تشخيص مالي وتنبيهات تنفيذية وسيناريوهات قرار.</p>', unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("## Wazen V14.1")
+    st.markdown("## Wazen V14.2")
     st.caption("Financial Health & Action Intelligence")
     if st.session_state.get("nav_page") not in PAGE_OPTIONS:
         st.session_state.nav_page = PAGE_OPTIONS[0]
@@ -1943,7 +1941,7 @@ with st.sidebar:
         st.session_state.nav_page = PAGE_OPTIONS[0]
         st.rerun()
     st.checkbox("تفعيل صياغة AI للملخص التنفيذي إذا كان المفتاح متاحًا", key="ai_narrative_enabled", value=st.session_state.get("ai_narrative_enabled", False))
-    st.caption("V14.1: Executive UX + Comparative Year Control")
+    st.caption("V14.2: Seven-question Executive Diagnosis")
 
 
 # -----------------------------------------------------------------------------
@@ -2273,46 +2271,185 @@ elif page == "4. التشخيص التنفيذي":
         net_profit = _as_number(mg.get("net_profit"), exec_kpis.get("net_profit", 0)) or 0
         leakage = rq.get("leakage_ratio") if isinstance(rq, dict) else None
 
-        st.markdown("### ملخص تنفيذي رقمي")
-        st.caption("الترتيب يعكس انتقال الإيراد من المبيعات إلى الربح النهائي، وليس مجرد عرض أرقام منفصلة.")
-        cols = st.columns(4)
-        with cols[0]: kpi_card("إجمالي الإيراد", _fmt_money(revenue), "أساس قراءة النشاط")
-        with cols[1]: kpi_card("تكلفة الإيراد", _fmt_money(cogs), f"{_fmt_pct(_ratio_of(cogs, revenue))} من الإيراد")
-        with cols[2]: kpi_card("مجمل الربح", _fmt_money(gross_profit), f"هامش {_fmt_pct(_ratio_of(gross_profit, revenue))}")
-        with cols[3]: kpi_card("المصاريف التشغيلية", _fmt_money(opex), f"{_fmt_pct(_ratio_of(opex, revenue))} من الإيراد")
+        # V14.2: Executive diagnosis is no longer a long narrative.
+        # It answers the seven owner questions directly and links every answer to a number.
+        balance_metrics = ((full_model.get("balance_sheet", {}) or {}).get("metrics", {}) or {}) if full_model else {}
+        comparison = full_model.get("comparative_analysis", {}) if full_model else {}
+        comp_summary = comparison.get("summary", {}) if isinstance(comparison, dict) else {}
 
-        cols2 = st.columns(4)
-        with cols2[0]: kpi_card("المصاريف الإدارية", _fmt_money(admin), f"{_fmt_pct(_ratio_of(admin, revenue))} من الإيراد")
-        with cols2[1]: kpi_card("البيع والتسويق", _fmt_money(selling), f"{_fmt_pct(_ratio_of(selling, revenue))} من الإيراد")
-        with cols2[2]: kpi_card("صافي النتيجة", _fmt_money(net_profit), f"هامش {_fmt_pct(_ratio_of(net_profit, revenue))}")
-        with cols2[3]: kpi_card("نقاء الإيراد", "—" if leakage is None else f"{(1-leakage)*100:.1f}%", "بعد الخصومات والمردودات")
+        gross_margin = _ratio_of(gross_profit, revenue)
+        cogs_ratio = _ratio_of(cogs, revenue)
+        opex_ratio = _ratio_of(opex, revenue)
+        admin_ratio = _ratio_of(admin, revenue)
+        selling_ratio = _ratio_of(selling, revenue)
+        ebitda_margin = _ratio_of(ebitda, revenue)
+        net_margin = _ratio_of(net_profit, revenue)
 
-        headline = exec_diag.get("headline") or "تشخيص مالي غير مكتمل"
-        source_label = "مولد بالذكاء الصناعي من مؤشرات الشركة" if exec_diag.get("source") == "ai" else "قراءة داخلية من محرك وازن"
-        if not ai_enabled:
-            source_label = "قراءة داخلية — يمكن تفعيل AI لصياغة CFO أكثر مرونة"
-        tone_class = "danger" if net_profit < 0 or "خس" in str(headline) or "لا يتحول" in str(headline) else "focus"
+        cash_val = _as_number(balance_metrics.get("cash"), None)
+        ar_val = _as_number(balance_metrics.get("ar"), None)
+        current_liabilities = _as_number(balance_metrics.get("current_liabilities"), None)
+        working_capital = _as_number(balance_metrics.get("working_capital"), None)
+        current_ratio_val = _metric_value(full_model, "current_ratio")
+        quick_ratio_val = _metric_value(full_model, "quick_ratio")
+        runway_val = _metric_value(full_model, "runway")
 
-        def _ul(items):
-            if not isinstance(items, list):
-                items = [items] if items else []
-            return "".join([f"<li>{_html_escape(x)}</li>" for x in items if str(x or '').strip()]) or "<li>لا توجد ملاحظات إضافية من النموذج الحالي.</li>"
+        def _short_money(v):
+            n = _as_number(v, None)
+            return "—" if n is None else f"{n:,.0f}"
 
-        st.markdown(f"""
-        <div class="ai-cfo-diagnosis v140-exec-diagnosis">
-            <div class="ai-cfo-source">{_html_escape(source_label)}</div>
-            <h3>{_html_escape(headline)}</h3>
-            <p class="ai-cfo-main {tone_class}">{_html_escape(exec_diag.get('executive_message',''))}</p>
-            <div class="ai-cfo-grid">
-                <div class="ai-cfo-box"><h4>قراءة نموذج العمل</h4><ul>{_ul(exec_diag.get('business_model_reading', exec_diag.get('evidence', [])))}</ul></div>
-                <div class="ai-cfo-box"><h4>مصادر الضغط</h4><ul>{_ul(exec_diag.get('risks', []))}</ul></div>
-                <div class="ai-cfo-box"><h4>السيولة ورأس المال العامل</h4><p>{_html_escape(exec_diag.get('cash_and_working_capital',''))}</p></div>
-                <div class="ai-cfo-box"><h4>حدود القراءة الحالية</h4><ul>{_ul(exec_diag.get('data_limits', []))}</ul></div>
+        def _short_pct(v):
+            n = _as_number(v, None)
+            return "—" if n is None else f"{n*100:.1f}%"
+
+        def _trend_line(label, pct, inverse=False):
+            n = _as_number(pct, None)
+            if n is None:
+                return f"{label}: لا توجد سنة أساس مقروءة"
+            direction = "ارتفاع" if n > 0 else "انخفاض" if n < 0 else "ثبات"
+            if inverse and n > 0:
+                direction += " يحتاج تفسيراً"
+            elif inverse and n < 0:
+                direction += " إيجابي"
+            return f"{label}: {direction} {abs(n)*100:.1f}%"
+
+        revenue_change = comp_summary.get("revenue_change_pct")
+        gp_change = comp_summary.get("gross_profit_change_pct")
+        expense_change = comp_summary.get("expense_change_pct")
+        net_change = comp_summary.get("net_profit_change_pct")
+
+        if gross_profit > 0:
+            where_profit_answer = "الهامش الأولي من النشاط هو مصدر الربح الحالي."
+            where_profit_evidence = f"مجمل الربح {_short_money(gross_profit)} بهامش {_short_pct(gross_margin)}."
+            where_profit_meaning = "التسعير والتكلفة المباشرة يتركان هامشاً قبل المصاريف العامة."
+            where_profit_decision = "حافظ على هذا الهامش، وثبّت تصنيف تكلفة الإيراد قبل الحكم النهائي على الربحية."
+        else:
+            where_profit_answer = "لا يظهر مصدر ربح تشغيلي واضح من قائمة الدخل الحالية."
+            where_profit_evidence = f"مجمل الربح {_short_money(gross_profit)} بهامش {_short_pct(gross_margin)}."
+            where_profit_meaning = "تكلفة الإيراد تمتص المبيعات قبل الوصول إلى هامش أولي."
+            where_profit_decision = "راجع التسعير وتكلفة التنفيذ أولاً."
+
+        pressure_candidates = [
+            ("تكلفة الإيراد", cogs, cogs_ratio),
+            ("المصاريف التشغيلية", opex, opex_ratio),
+            ("المصاريف الإدارية", admin, admin_ratio),
+            ("البيع والتسويق", selling, selling_ratio),
+        ]
+        pressure_candidates = [x for x in pressure_candidates if _as_number(x[2], None) is not None]
+        biggest = max(pressure_candidates, key=lambda x: abs(_as_number(x[2], 0) or 0), default=("غير محدد", None, None))
+        if ebitda < 0 or net_profit < 0:
+            where_loss_answer = f"أكبر ضغط ظاهر يأتي من {biggest[0]}."
+        else:
+            where_loss_answer = f"لا توجد خسارة نهائية واضحة، لكن أكبر بند يضغط الهامش هو {biggest[0]}."
+        where_loss_ratio = f"{biggest[0]} يعادل {_short_pct(biggest[2])} من الإيراد."
+        where_loss_comp = _trend_line("مقارنة بالسنة السابقة", expense_change, inverse=True)
+        where_loss_reason = "إذا بقي هذا البند غير مرتبط مباشرة بالإيراد، فسيمنع تحويل مجمل الربح إلى صافي ربح مستقر."
+
+        reasons = []
+        reasons.append(f"تكلفة الإيراد تمثل {_short_pct(cogs_ratio)} من الإيراد، ما يحدد مساحة مجمل الربح المتاحة.")
+        reasons.append(f"المصاريف التشغيلية تمثل {_short_pct(opex_ratio)} من الإيراد، وهي العامل الذي يحدد انتقال الهامش إلى ربح تشغيلي.")
+        if selling is not None or admin is not None:
+            reasons.append(f"الإدارة {_short_pct(admin_ratio)} والبيع والتسويق {_short_pct(selling_ratio)} من الإيراد؛ هذه البنود تحتاج ربطاً بالإنتاجية أو المبيعات.")
+        else:
+            reasons.append(f"صافي الهامش {_short_pct(net_margin)} يثبت أن جزءاً من الهامش يضيع بعد مجمل الربح.")
+        reasons = reasons[:3]
+
+        liquidity_lines = [
+            f"النقد المتاح: {_short_money(cash_val)}",
+            f"الذمم المدينة: {_short_money(ar_val)}",
+            f"الالتزامات المتداولة: {_short_money(current_liabilities)}",
+            f"رأس المال العامل: {_short_money(working_capital)}",
+            f"نسبة التداول: {'—' if current_ratio_val is None else f'{current_ratio_val:.2f}x'}",
+            f"فترة تحمل النقد: {'تحتاج كشف بنك/تقرير سيولة' if runway_val is None else f'{runway_val:.1f} شهر'}",
+        ]
+
+        trend_lines = [
+            _trend_line("الإيراد", revenue_change),
+            _trend_line("مجمل الربح", gp_change),
+            _trend_line("المصاريف", expense_change, inverse=True),
+            _trend_line("صافي الربح", net_change),
+        ]
+
+        if ebitda < 0:
+            decision_answer = "أولوية القرار الآن هي إصلاح الخسارة التشغيلية."
+            decision_reason = f"هامش التشغيل {_short_pct(ebitda_margin)}؛ أي أن الهامش الأولي لا يكفي لتغطية التشغيل."
+            avoid_line = "تجنب الاعتماد على زيادة المبيعات وحدها قبل ضبط التكلفة والمصاريف."
+            first_action = "خلال 7 أيام: استخرج أكبر 10 بنود تكلفة ومصاريف، وصنّفها إلى منتجة للإيراد وغير منتجة."
+            expected_impact = "الأثر المتوقع: تحديد البنود التي تخفض نقطة التعادل وتعيد الهامش التشغيلي للمنطقة الموجبة."
+        elif net_profit < 0:
+            decision_answer = "أولوية القرار الآن هي إغلاق الفجوة بين التشغيل وصافي النتيجة."
+            decision_reason = f"صافي النتيجة {_short_money(net_profit)} بهامش {_short_pct(net_margin)}."
+            avoid_line = "تجنب قراءة مجمل الربح كربح نهائي قبل مراجعة التمويل والضريبة والبنود غير التشغيلية."
+            first_action = "خلال 7 أيام: راجع البنود بعد الربح التشغيلي وحدد ما هو متكرر وما هو استثنائي."
+            expected_impact = "الأثر المتوقع: معرفة إن كانت الخسارة تشغيلية متكررة أم ناتجة عن بنود غير متكررة."
+        else:
+            decision_answer = "أولوية القرار الآن هي تثبيت جودة الربح وربطه بالنقد."
+            decision_reason = f"صافي الهامش {_short_pct(net_margin)}، والسيولة المحاسبية تحتاج ربطاً بتوقيت التحصيل والسداد."
+            avoid_line = "تجنب الحكم من قائمة الدخل وحدها دون مراجعة الذمم والالتزامات."
+            first_action = "خلال 7 أيام: اربط العملاء والموردين بأعمار الذمم وخطة التحصيل والسداد."
+            expected_impact = "الأثر المتوقع: تحويل الربح المحاسبي إلى قراءة نقدية قابلة للتنفيذ."
+
+        # When AI is enabled and available, it enriches the wording inside the same structured cards.
+        # The numeric evidence still comes from deterministic engines only.
+        ai_card_source = bool(ai_enabled and isinstance(exec_diag, dict) and exec_diag.get("source") == "ai")
+        if ai_card_source:
+            bm_ai = [x for x in exec_diag.get("business_model_reading", []) if str(x or '').strip()]
+            risks_ai = [x for x in exec_diag.get("risks", []) if str(x or '').strip()]
+            actions_ai = [x for x in exec_diag.get("next_actions", []) if str(x or '').strip()]
+            if bm_ai:
+                where_profit_meaning = bm_ai[0]
+                reasons = (bm_ai[:3] + reasons)[:3]
+            if risks_ai:
+                where_loss_reason = risks_ai[0]
+            if actions_ai:
+                first_action = f"خلال 7 أيام: {actions_ai[0]}" if "خلال" not in actions_ai[0] else actions_ai[0]
+            if exec_diag.get("decision_label"):
+                decision_answer = str(exec_diag.get("decision_label"))
+
+        def _exec_card(num, title, answer, evidence, meaning, decision, tone="neutral"):
+            st.markdown(f'''
+            <div class="v142-exec-card {tone}">
+                <div class="v142-exec-num">{num}</div>
+                <h4>{_html_escape(title)}</h4>
+                <strong>{_html_escape(answer)}</strong>
+                <div class="v142-line"><span>الدليل الرقمي</span><p>{_html_escape(evidence)}</p></div>
+                <div class="v142-line"><span>ماذا يعني ذلك؟</span><p>{_html_escape(meaning)}</p></div>
+                <div class="v142-line"><span>القرار الإداري</span><p>{_html_escape(decision)}</p></div>
             </div>
-            <div class="ai-cfo-actions"><h4>إجراءات تنفيذية مقترحة</h4><ul>{_ul(exec_diag.get('next_actions', []))}</ul></div>
-            <div class="ai-cfo-note">{_html_escape(exec_diag.get('confidence_note',''))}</div>
+            ''', unsafe_allow_html=True)
+
+        st.markdown("### التشخيص التنفيذي")
+        st.caption("هذه الصفحة تجيب على أسئلة صاحب العمل مباشرة: أين يتحقق الربح، أين يظهر الضغط، ولماذا، وما القرار والإجراء الأول.")
+        st.markdown(f'''
+        <div class="v142-profit-chain">
+            <div><span>إجمالي الإيراد</span><strong>{_short_money(revenue)}</strong></div>
+            <div><span>تكلفة الإيراد</span><strong>{_short_money(cogs)}</strong><em>{_short_pct(cogs_ratio)}</em></div>
+            <div><span>مجمل الربح</span><strong>{_short_money(gross_profit)}</strong><em>{_short_pct(gross_margin)}</em></div>
+            <div><span>مصاريف التشغيل</span><strong>{_short_money(opex)}</strong><em>{_short_pct(opex_ratio)}</em></div>
+            <div><span>الإدارية</span><strong>{_short_money(admin)}</strong><em>{_short_pct(admin_ratio)}</em></div>
+            <div><span>البيع والتسويق</span><strong>{_short_money(selling)}</strong><em>{_short_pct(selling_ratio)}</em></div>
+            <div><span>صافي النتيجة</span><strong>{_short_money(net_profit)}</strong><em>{_short_pct(net_margin)}</em></div>
         </div>
-        """, unsafe_allow_html=True)
+        ''', unsafe_allow_html=True)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            _exec_card("01", "أين تربح الشركة؟", where_profit_answer, where_profit_evidence, where_profit_meaning, where_profit_decision, "ok" if gross_profit > 0 else "danger")
+        with c2:
+            _exec_card("02", "أين تخسر أو يتآكل الهامش؟", where_loss_answer, where_loss_ratio + " | " + where_loss_comp, where_loss_reason, "ابدأ من هذا البند لأنه الأكثر تأثيراً على انتقال الإيراد إلى ربح.", "danger" if net_profit < 0 or ebitda < 0 else "warning")
+
+        c3, c4 = st.columns(2)
+        with c3:
+            _exec_card("03", "لماذا يحدث ذلك؟", "ثلاثة أسباب رقمية تقود النتيجة الحالية.", " | ".join(reasons), "المشكلة تُقرأ من سلسلة الربح، لا من رقم واحد منفصل.", "عالج السبب الأكبر أولاً ثم أعد احتساب الهامش.", "warning")
+        with c4:
+            _exec_card("04", "ما أثره على السيولة؟", "الربحية تضغط السيولة عندما لا تتحول إلى نقد كافٍ.", " | ".join(liquidity_lines), "ميزان المراجعة يقرأ السيولة المحاسبية؛ أما توقيت النقد فيحتاج حركة البنك أو أعمار الذمم.", "اربط رأس المال العامل بخطة تحصيل وسداد قصيرة الأجل.", "warning" if current_ratio_val is None else "neutral")
+
+        c5, c6 = st.columns(2)
+        with c5:
+            _exec_card("05", "هل الوضع يتحسن أم يسوء؟", "الاتجاه يُقرأ من مقارنة السنة محل التحليل بسنة الأساس.", " | ".join(trend_lines), "التحسن الحقيقي يعني نمو الإيراد والهامش مع ضبط المصاريف، وليس نمو بند واحد فقط.", "راجع البنود التي تتحرك عكس الاتجاه الصحي.", "warning")
+        with c6:
+            _exec_card("06", "ما القرار المطلوب الآن؟", decision_answer, decision_reason, avoid_line, "اجعل القرار مبنياً على الهامش التشغيلي والسيولة المحاسبية معاً.", "danger" if ebitda < 0 or net_profit < 0 else "ok")
+
+        _exec_card("07", "ما الإجراء الأول؟", first_action, "مدة التنفيذ: 7 أيام عمل.", expected_impact, "بعد التنفيذ أعد بناء النموذج وقارن أثر التصنيف على الهامش والسيولة.", "focus")
 
         health = full_model.get("financial_health_score", {}) if full_model else {}
         warnings = []

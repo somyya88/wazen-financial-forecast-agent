@@ -1017,6 +1017,35 @@ def apply_theme():
     @media(max-width: 1150px){ .v141-source-grid{ grid-template-columns:1fr 1fr; } }
     @media(max-width: 720px){ .v141-source-grid{ grid-template-columns:1fr; } }
 
+
+    /* V14.2 Executive diagnosis cards */
+    .v142-profit-chain {
+        display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:10px; margin:16px 0 20px;
+    }
+    .v142-profit-chain div {
+        background:#fff; border:1px solid #E6EAF0; border-radius:18px; padding:14px 12px; box-shadow:0 14px 30px rgba(16,24,40,.05); border-top:4px solid #17479E;
+    }
+    .v142-profit-chain span { display:block; color:#667085; font-size:12px; font-weight:900; margin-bottom:8px; }
+    .v142-profit-chain strong { display:block; color:#17479E; font-size:24px; font-weight:950; direction:ltr; text-align:left; line-height:1.1; }
+    .v142-profit-chain em { display:block; color:#475467; font-style:normal; font-weight:800; font-size:12px; margin-top:7px; }
+    .v142-exec-card {
+        position:relative; background:#fff; border:1px solid #E1E8F5; border-right:6px solid #17479E; border-radius:24px;
+        padding:22px 24px; min-height:330px; margin-bottom:18px; box-shadow:0 18px 45px rgba(16,24,40,.06);
+    }
+    .v142-exec-card.ok { border-right-color:#12B76A; }
+    .v142-exec-card.warning { border-right-color:#FAA61A; }
+    .v142-exec-card.danger { border-right-color:#D92D20; }
+    .v142-exec-card.focus { border-right-color:#17479E; background:linear-gradient(180deg,#FFFFFF,#F7FAFF); min-height:240px; }
+    .v142-exec-num { position:absolute; top:16px; left:18px; color:#98A2B3; font-weight:950; font-size:13px; letter-spacing:.04em; }
+    .v142-exec-card h4 { margin:0 0 12px; color:#0B2E63 !important; font-size:21px; font-weight:950; padding-left:46px; }
+    .v142-exec-card strong { display:block; color:#0B2E63; font-size:18px; font-weight:950; line-height:1.8; margin-bottom:14px; }
+    .v142-exec-card.danger strong { color:#B42318; }
+    .v142-exec-card.ok strong { color:#067647; }
+    .v142-line { border-top:1px solid #EEF2F6; padding-top:10px; margin-top:10px; }
+    .v142-line span { display:block; color:#17479E; font-weight:950; font-size:13px; margin-bottom:4px; }
+    .v142-line p { color:#344054; font-size:14px; line-height:1.85; margin:0; }
+    @media(max-width: 1200px){ .v142-profit-chain{ grid-template-columns:repeat(3,1fr); } }
+    @media(max-width: 760px){ .v142-profit-chain{ grid-template-columns:1fr; } .v142-exec-card{ min-height:auto; } }
 </style>
     """
     st.markdown(css, unsafe_allow_html=True)
